@@ -49,4 +49,13 @@
 modules.order
 Module.symvers
 Mkfile.old
-dkms.conf
+
+re1.config
+re1.files
+re1.creator
+re1.includes
+
+y.output
+y.tab.c
+
+re
