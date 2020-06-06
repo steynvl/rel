@@ -17,23 +17,23 @@ typedef struct Inst Inst;
 
 struct Regexp
 {
-	int type;
-	int n;
-	int ch;
-	Regexp *left;
-	Regexp *right;
+    int type;
+    int n;
+    int ch;
+    Regexp *left;
+    Regexp *right;
 };
 
 enum	/* Regexp.type */
 {
-	Alt = 1,
-	Cat,
-	Lit,
-	Dot,
-	Paren,
-	Quest,
-	Star,
-	Plus,
+    Alt = 1,
+    Cat,
+    Lit,
+    Dot,
+    Paren,
+    Quest,
+    Star,
+    Plus,
 };
 
 Regexp *parse(char*);
@@ -44,28 +44,28 @@ void *mal(int);
 
 struct Prog
 {
-	Inst *start;
-	int len;
+    Inst *start;
+    int len;
 };
 
 struct Inst
 {
-	int opcode;
-	int c;
-	int n;
-	Inst *x;
-	Inst *y;
-	int gen;	// global state, oooh!
+    int opcode;
+    int c;
+    int n;
+    Inst *x;
+    Inst *y;
+    int gen;	// global state, oooh!
 };
 
 enum	/* Inst.opcode */
 {
-	Char = 1,
-	Match,
-	Jmp,
-	Split,
-	Any,
-	Save,
+    Char = 1,
+    Match,
+    Jmp,
+    Split,
+    Any,
+    Save,
 };
 
 Prog *compile(Regexp*);
@@ -74,16 +74,16 @@ void printprog(Prog*);
 extern int gen;
 
 enum {
-	MAXSUB = 20
+    MAXSUB = 20
 };
 
 typedef struct Sub Sub;
 
 struct Sub
 {
-	int ref;
-	int nsub;
-	char *sub[MAXSUB];
+    int ref;
+    int nsub;
+    char *sub[MAXSUB];
 };
 
 Sub *newsub(int n);

@@ -7,24 +7,24 @@
 void
 usage(void)
 {
-	fprintf(stderr, "usage: re regexp string...\n");
-	exit(2);
+    fprintf(stderr, "usage: re regexp string...\n");
+    exit(2);
 }
 
 int
 main(int argc, char **argv)
 {
     int i, k, l;
-	Regexp *re;
-	Prog *prog;
-	char *sub[MAXSUB];
+    Regexp *re;
+    Prog *prog;
+    char *sub[MAXSUB];
 
     if (argc < 2)
-		usage();
+        usage();
 
-	re = parse(argv[1]);
-	printre(re);
-	printf("\n");
+    re = parse(argv[1]);
+    printre(re);
+    printf("\n");
 
     prog = compile(re);
     printprog(prog);
