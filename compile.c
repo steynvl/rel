@@ -9,12 +9,17 @@ static int count(Regexp*);
 static void emit(Regexp*);
 
 Prog*
-compile(Regexp *r)
+compile(RegexpWithLook *rwl)
 {
-    int n;
+    Regexp *r;
     Prog *p;
+    int n;
 
+    r = rwl->regexp;
+
+    /* add 1 to each */
     n = count(r) + 1;
+
     p = mal(sizeof *p + n*sizeof p->start[0]);
     p->start = (Inst*)(p+1);
     pc = p->start;
@@ -25,7 +30,7 @@ compile(Regexp *r)
     return p;
 }
 
-// how many instructions does r need?
+// how many instructions does r and the k lookaheads need?
 static int
 count(Regexp *r)
 {
@@ -41,6 +46,9 @@ count(Regexp *r)
         return 1;
     case Paren:
         return 2 + count(r->left);
+    case Look:
+        /* TODO */
+        return 1;
     case Quest:
         return 1 + count(r->left);
     case Star:
@@ -58,6 +66,10 @@ emit(Regexp *r)
     switch (r->type) {
     default:
         fatal("bad emit");
+
+    case Look:
+        /* TODO */
+        break;
 
     case Alt:
         pc->opcode = Split;

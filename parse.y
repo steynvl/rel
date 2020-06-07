@@ -9,6 +9,7 @@ static int yylex(void);
 static void yyerror(char*);
 static Regexp *parsed_regexp;
 static int nparen;
+static int nlookaheads;
 
 %}
 
@@ -16,11 +17,13 @@ static int nparen;
     Regexp *re;
     int c;
     int nparen;
+    int nlookaheads;
 }
 
 %token	<c> CHAR EOL
 %type	<re>	alt concat repeat single line
 %type	<nparen> count
+%type   <nlookaheads> count_look
 
 %%
 
@@ -83,11 +86,21 @@ $$ = ++nparen;
 }
 ;
 
+count_look:
+{
+$$ = ++nlookaheads;
+}
+;
+
 single:
 '(' count alt ')'
 {
     $$ = reg(Paren, $3, nil);
     $$->n = $2;
+}
+|   '(' '?' '=' count_look alt ')'
+{
+    $$ = reg(Look, $5, nil);
 }
 |	'(' '?' ':' alt ')'
 {
@@ -109,6 +122,7 @@ $$ = reg(Dot, nil, nil);
 static char *input;
 static Regexp *parsed_regexp;
 static int nparen;
+static int nlookaheads;
 int gen;
 
 static int
@@ -116,10 +130,10 @@ yylex(void)
 {
     int c;
 
-    if(input == NULL || *input == 0)
+    if (input == NULL || *input == 0)
         return EOL;
     c = *input++;
-    if(strchr("|*+?():.", c))
+    if (strchr("|*+?=():.", c))
         return c;
     yylval.c = c;
     return CHAR;
@@ -145,7 +159,7 @@ yyerror(char *s)
 }
 
 
-Regexp*
+RegexpWithLook*
 parse(char *s)
 {
     Regexp *r, *dotstar;
@@ -161,7 +175,7 @@ parse(char *s)
     r = reg(Paren, parsed_regexp, nil);	// $0 parens
     dotstar = reg(Star, reg(Dot, nil, nil), nil);
     dotstar->n = 1;	// non-greedy
-    return reg(Cat, dotstar, r);
+    return regWithLook(reg(Cat, dotstar, r), nlookaheads);
 }
 
 void*
@@ -186,6 +200,17 @@ reg(int type, Regexp *left, Regexp *right)
     r->left = left;
     r->right = right;
     return r;
+}
+
+RegexpWithLook*
+regWithLook(Regexp *reg, int k)
+{
+    RegexpWithLook *rwl;
+
+    rwl = mal(sizeof *rwl);
+    rwl->regexp = reg;
+    rwl->k = k;
+    return rwl;
 }
 
 void
@@ -222,6 +247,12 @@ printre(Regexp *r)
 
     case Paren:
         printf("Paren(%d, ", r->n);
+        printre(r->left);
+        printf(")");
+        break;
+
+    case Look:
+        printf("Look(%d, ", r->n);
         printre(r->left);
         printf(")");
         break;

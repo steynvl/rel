@@ -12,8 +12,20 @@
 #define nelem(x) (sizeof(x)/sizeof((x)[0]))
 
 typedef struct Regexp Regexp;
+typedef struct RegexpWithLook RegexpWithLook;
+
 typedef struct Prog Prog;
+typedef struct LookaheadProg LookaheadProg;
+
 typedef struct Inst Inst;
+
+struct RegexpWithLook
+{
+    /* number of lookaheads in the REwLA */
+    int k;
+
+    Regexp *regexp;
+};
 
 struct Regexp
 {
@@ -31,13 +43,15 @@ enum	/* Regexp.type */
     Lit,
     Dot,
     Paren,
+    Look,
     Quest,
     Star,
     Plus,
 };
 
-Regexp *parse(char*);
+RegexpWithLook *parse(char*);
 Regexp *reg(int type, Regexp *left, Regexp *right);
+RegexpWithLook *regWithLook(Regexp *reg, int k);
 void printre(Regexp*);
 void fatal(char*, ...);
 void *mal(int);
@@ -45,6 +59,12 @@ void *mal(int);
 struct Prog
 {
     Inst *start;
+    int len;
+};
+
+struct LookaheadProg
+{
+    Prog *start;
     int len;
 };
 
@@ -68,7 +88,7 @@ enum	/* Inst.opcode */
     Save,
 };
 
-Prog *compile(Regexp*);
+Prog *compile(RegexpWithLook*);
 void printprog(Prog*);
 
 extern int gen;
