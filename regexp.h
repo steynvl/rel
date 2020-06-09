@@ -15,7 +15,7 @@ typedef struct Regexp Regexp;
 typedef struct RegexpWithLook RegexpWithLook;
 
 typedef struct Prog Prog;
-typedef struct LookaheadProg LookaheadProg;
+typedef struct ProgWithLook ProgWithLook;
 
 typedef struct Inst Inst;
 
@@ -62,9 +62,9 @@ struct Prog
     int len;
 };
 
-struct LookaheadProg
+struct ProgWithLook
 {
-    Prog *start;
+    Prog *prog;
     int len;
 };
 

@@ -16,7 +16,6 @@ main(int argc, char **argv)
 {
     int i, k, l;
     RegexpWithLook *rwl;
-    Regexp *re;
     Prog *prog;
     char *sub[MAXSUB];
 
@@ -24,12 +23,11 @@ main(int argc, char **argv)
         usage();
 
     rwl = parse(argv[1]);
-    re = rwl->regexp;
-    printre(re);
+    printre(rwl->regexp);
     printf("\n");
 
     prog = compile(rwl);
-    printprog(prog);
+//    printprog(prog);
 
     for (i = 2; i < argc; i++) {
         printf("#%d %s\n", i-1, argv[i]);

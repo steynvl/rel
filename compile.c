@@ -5,61 +5,116 @@
 #include "regexp.h"
 
 static Inst *pc;
-static int count(Regexp*);
-static void emit(Regexp*);
+
+/* current index [0 = main] [1 = 1st lookahead branch] ... */
+static int ci;
+
+static void count(Regexp*, int*, int);
+static Prog* construct_product(ProgWithLook*);
+static void emit(Regexp*, ProgWithLook*);
 
 Prog*
 compile(RegexpWithLook *rwl)
 {
-    Regexp *r;
+    ProgWithLook *pwl;
     Prog *p;
-    int n;
+
+    Regexp *r;
+    int *n;
+    int i, num_progs;
 
     r = rwl->regexp;
+    num_progs = rwl->k + 1;
+    printf("num_progs = %d\n", num_progs);
 
-    /* add 1 to each */
-    n = count(r) + 1;
+    n = mal(num_progs * sizeof *n);
+    for (i = 0; i < num_progs; i++) {
+        n[i] = 1;
+    }
 
-    p = mal(sizeof *p + n*sizeof p->start[0]);
-    p->start = (Inst*)(p+1);
-    pc = p->start;
-    emit(r);
-    pc->opcode = Match;
-    pc++;
-    p->len = pc - p->start;
-    return p;
+    count(r, n, 0);
+
+    for (i = 0; i < num_progs; i++) {
+        printf("n[%d] = %d\n", i, n[i]);
+    }
+
+    pwl = mal(num_progs * sizeof(ProgWithLook));
+    pwl->len = num_progs;
+    for (i = 0; i < num_progs; i++) {
+        p = mal(sizeof *p + n[i]*sizeof p->start[0]);
+        p->start = (Inst*)(p+1);
+        p->len = n[i] - 1;
+        pwl[i].prog = p;
+    }
+
+    ci = 0;
+    pc = pwl[ci].prog->start;
+
+    emit(r, pwl);
+
+    for (i = 0; i < num_progs; i++) {
+        int len = pwl[i].prog->len;
+
+        pwl[i].prog->start[len].opcode = Match;
+        pwl[i].prog->len += 1;
+
+        printf("PROGRAM %d\n", i);
+        printprog(pwl[i].prog);
+    }
+
+    return construct_product(pwl);
+}
+
+static Prog*
+construct_product(ProgWithLook *pwl)
+{
+    return nil;
 }
 
 // how many instructions does r and the k lookaheads need?
-static int
-count(Regexp *r)
+static void
+count(Regexp *r, int *counts, int index)
 {
     switch (r->type) {
     default:
         fatal("bad count");
     case Alt:
-        return 2 + count(r->left) + count(r->right);
+        counts[index] += 2;
+        count(r->left, counts, index);
+        count(r->right, counts, index);
+        return;
     case Cat:
-        return count(r->left) + count(r->right);
+        count(r->left, counts, index);
+        count(r->right, counts, index);
+        return;
     case Lit:
     case Dot:
-        return 1;
+        counts[index] += 1;
+        return;
     case Paren:
-        return 2 + count(r->left);
+        counts[index] += 2;
+        count(r->left, counts, index);
+        return;
     case Look:
-        /* TODO */
-        return 1;
+        count(r->left, counts, index + 1);
+        return;
     case Quest:
-        return 1 + count(r->left);
+        counts[index] += 1;
+        count(r->left, counts, index);
+        return;
     case Star:
-        return 2 + count(r->left);
+        counts[index] += 2;
+        count(r->left, counts, index);
+        return;
     case Plus:
-        return 1 +  count(r->left);
+        counts[index] += 1;
+        count(r->left, counts, index);
+        return;
     }
 }
 
 static void
-emit(Regexp *r)
+emit(Regexp *r, ProgWithLook *pwl)
 {
     Inst *p1, *p2, *t;
 
@@ -68,24 +123,28 @@ emit(Regexp *r)
         fatal("bad emit");
 
     case Look:
-        /* TODO */
+        p1 = pc;
+        pc = pwl[++ci].prog->start;
+        emit(r->left, pwl);
+        pc = p1;
+        ci--;
         break;
 
     case Alt:
         pc->opcode = Split;
         p1 = pc++;
         p1->x = pc;
-        emit(r->left);
+        emit(r->left, pwl);
         pc->opcode = Jmp;
         p2 = pc++;
         p1->y = pc;
-        emit(r->right);
+        emit(r->right, pwl);
         p2->x = pc;
         break;
 
     case Cat:
-        emit(r->left);
-        emit(r->right);
+        emit(r->left, pwl);
+        emit(r->right, pwl);
         break;
 
     case Lit:
@@ -102,7 +161,7 @@ emit(Regexp *r)
         pc->opcode = Save;
         pc->n = 2*r->n;
         pc++;
-        emit(r->left);
+        emit(r->left, pwl);
         pc->opcode = Save;
         pc->n = 2*r->n + 1;
         pc++;
@@ -112,7 +171,7 @@ emit(Regexp *r)
         pc->opcode = Split;
         p1 = pc++;
         p1->x = pc;
-        emit(r->left);
+        emit(r->left, pwl);
         p1->y = pc;
         if (r->n) {	// non-greedy
             t = p1->x;
@@ -125,7 +184,7 @@ emit(Regexp *r)
         pc->opcode = Split;
         p1 = pc++;
         p1->x = pc;
-        emit(r->left);
+        emit(r->left, pwl);
         pc->opcode = Jmp;
         pc->x = p1;
         pc++;
@@ -139,7 +198,7 @@ emit(Regexp *r)
 
     case Plus:
         p1 = pc;
-        emit(r->left);
+        emit(r->left, pwl);
         pc->opcode = Split;
         pc->x = p1;
         p2 = pc;
@@ -157,12 +216,13 @@ emit(Regexp *r)
 void
 printprog(Prog *p)
 {
-    Inst *pc, *e;
+    Inst *pc;
+    int i;
 
     pc = p->start;
-    e = p->start + p->len;
 
-    for (; pc < e; pc++) {
+    for (i = 0; i < p->len; i++) {
+        pc = &p->start[i];
         switch (pc->opcode) {
         default:
             fatal("printprog");
