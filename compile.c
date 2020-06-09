@@ -9,9 +9,13 @@ static Inst *pc;
 /* current index [0 = main] [1 = 1st lookahead branch] ... */
 static int ci;
 
+/* seen lookaheads, used in count function */
+static int sl;
+
 static void count(Regexp*, int*, int);
 static Prog* construct_product(ProgWithLook*);
 static void emit(Regexp*, ProgWithLook*);
+static void populate_states(ProgWithLook*, int**, int);
 
 Prog*
 compile(RegexpWithLook *rwl)
@@ -32,6 +36,7 @@ compile(RegexpWithLook *rwl)
         n[i] = 1;
     }
 
+    sl = 0;
     count(r, n, 0);
 
     for (i = 0; i < num_progs; i++) {
@@ -65,10 +70,96 @@ compile(RegexpWithLook *rwl)
     return construct_product(pwl);
 }
 
+static void
+print_states(int **states, int r, int c)
+{
+    int i, j;
+
+    for (i = 0; i < r; i++) {
+        printf("(");
+        for (j = 0; j < c; j++) {
+            printf("%d", states[i][j]);
+            if (j != c - 1) {
+                printf(", ");
+            }
+        }
+        printf(")\n");
+    }
+}
+
 static Prog*
 construct_product(ProgWithLook *pwl)
 {
-    return nil;
+    Prog *p;
+    int i, num_states;
+    int **states;
+
+    num_states = 1;
+    for (i = 0; i < pwl->len; i++) {
+        num_states *= pwl[i].prog->len;
+    }
+
+    printf("num_states = %d\n", num_states);
+    states = mal(num_states * sizeof(int*));
+    for (i = 0; i < num_states; i++) {
+        states[i] = mal(pwl->len * sizeof(int));
+    }
+
+    populate_states(pwl, states, num_states);
+    print_states(states, num_states, pwl->len);
+
+    /* build transition table for A0..Ak, change to build this while compiling ProgWithLook */
+
+
+    return p;
+}
+
+static void
+populate_states(ProgWithLook *pwl, int **states, int num_states)
+{
+    int **cpy;
+    int i, j, k, end, width, added, rem_look;
+
+    cpy = mal(num_states * sizeof(int*));
+    for (i = 0; i < num_states; i++) {
+        cpy[i] = mal(pwl->len * sizeof(int));
+    }
+
+    for (i = 0; i < pwl[0].prog->len; i++) {
+        cpy[i][0] = i;
+    }
+    end = i;
+    width = 1;
+
+    rem_look = pwl->len - 1;
+    while (rem_look > 0) {
+
+        added = 0;
+        for (i = 0; i < end; i++) {
+            for (j = 0; j < pwl[pwl->len - rem_look].prog->len; j++) {
+                for (k = 0; k < width; k++) {
+                    states[added][k] = cpy[i][k];
+                }
+                states[added++][width] = j;
+            }
+        }
+
+        end = added;
+        rem_look--;
+
+        for (i = 0; i < num_states; i++) {
+            for (j = 0; j < pwl[0].prog->len; j++) {
+                cpy[i][j] = states[i][j];
+            }
+        }
+
+        width++;
+    }
+
+    for (i = 0; i < num_states; i++) {
+        free(cpy[i]);
+    }
+    free(cpy);
 }
 
 // how many instructions does r and the k lookaheads need?
@@ -96,7 +187,8 @@ count(Regexp *r, int *counts, int index)
         count(r->left, counts, index);
         return;
     case Look:
-        count(r->left, counts, index + 1);
+        count(r->left, counts, sl + 1);
+        sl++;
         return;
     case Quest:
         counts[index] += 1;
@@ -124,10 +216,10 @@ emit(Regexp *r, ProgWithLook *pwl)
 
     case Look:
         p1 = pc;
-        pc = pwl[++ci].prog->start;
+        pc = pwl[ci + 1].prog->start;
         emit(r->left, pwl);
         pc = p1;
-        ci--;
+        ci++;
         break;
 
     case Alt:
