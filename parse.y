@@ -172,10 +172,12 @@ parse(char *s)
     if (parsed_regexp == nil)
         yyerror("parser nil");
 
-    r = reg(Paren, parsed_regexp, nil);	// $0 parens
-    dotstar = reg(Star, reg(Dot, nil, nil), nil);
-    dotstar->n = 1;	// non-greedy
-    return regWithLook(reg(Cat, dotstar, r), nlookaheads);
+//    r = reg(Paren, parsed_regexp, nil);	// $0 parens
+//    dotstar = reg(Star, reg(Dot, nil, nil), nil);
+//    dotstar->n = 1;	// non-greedy
+//    return regWithLook(reg(Cat, dotstar, r), nlookaheads);
+
+    return regWithLook(reg(Paren, parsed_regexp, nil), nlookaheads);
 }
 
 void*

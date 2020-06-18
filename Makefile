@@ -8,6 +8,7 @@ CFLAGS=-ggdb -Wall -O2
 TARG=re
 OFILES=\
 	compile.o\
+	transition.o\
 	main.o\
 	pike.o\
 	sub.o\
@@ -15,6 +16,7 @@ OFILES=\
 
 HFILES=\
 	regexp.h\
+	transition.h\
 	y.tab.h\
 
 re: $(OFILES)

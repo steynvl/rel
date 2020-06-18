@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#include "regexp.h"
+#include "transition.h"
 
 static Inst *pc;
 
@@ -12,8 +12,18 @@ static int ci;
 /* seen lookaheads, used in count function */
 static int sl;
 
+/* current branch, used in emit to keep track of nested lookaheads */
+static int cb;
+
+/* states which were originally the "and" state starting lookahead i */
+static AndState* and_states;
+
+/* alphabet of the regex, populated in emit */
+static Pair* alphabet;
+
 static void count(Regexp*, int*, int);
 static Prog* construct_product(ProgWithLook*);
+static Transition* product_transitions(int**, int, int*, ProgWithLook*);
 static void emit(Regexp*, ProgWithLook*);
 static void populate_states(ProgWithLook*, int**, int);
 
@@ -25,7 +35,7 @@ compile(RegexpWithLook *rwl)
 
     Regexp *r;
     int *n;
-    int i, num_progs;
+    int i, len, num_progs;
 
     r = rwl->regexp;
     num_progs = rwl->k + 1;
@@ -55,10 +65,28 @@ compile(RegexpWithLook *rwl)
     ci = 0;
     pc = pwl[ci].prog->start;
 
+    and_states = mal(rwl->k * sizeof(AndState));
+    cb = 0;
+
+    alphabet = nil;
+    add_to_pair_list(&alphabet, Epsilon, -1);
+
     emit(r, pwl);
 
+    printf("ALPHABET!\n");
+    print_pair_list(alphabet);
+
+    if (num_progs == 1) {
+        printprog(pwl[0].prog);
+        return pwl[0].prog;
+    }
+
+    for (i = 0; i < rwl->k; i++) {
+        printf("and_states[%d] = (state = %d, branch = %d)\n", i, and_states[i].state, and_states[i].branch);
+    }
+
     for (i = 0; i < num_progs; i++) {
-        int len = pwl[i].prog->len;
+        len = pwl[i].prog->len;
 
         pwl[i].prog->start[len].opcode = Match;
         pwl[i].prog->len += 1;
@@ -67,18 +95,21 @@ compile(RegexpWithLook *rwl)
         printprog(pwl[i].prog);
     }
 
-    return construct_product(pwl);
+    if (num_progs == 1)
+        return pwl[0].prog;
+    else
+        return construct_product(pwl);
 }
 
 static void
-print_states(int **states, int r, int c)
+print_states(int **states, int r, int c, int *offsets)
 {
     int i, j;
 
     for (i = 0; i < r; i++) {
         printf("(");
         for (j = 0; j < c; j++) {
-            printf("%d", states[i][j]);
+            printf("%d", states[i][j] + offsets[j]);
             if (j != c - 1) {
                 printf(", ");
             }
@@ -91,27 +122,217 @@ static Prog*
 construct_product(ProgWithLook *pwl)
 {
     Prog *p;
-    int i, num_states;
+    Transition *t;
+    AndState as;
+    StateList *fs, *is;
+    int *offsets;
     int **states;
+    int i, num_states, cum;
 
+    offsets = mal(pwl->len * sizeof(int));
+    cum = 0;
     num_states = 1;
     for (i = 0; i < pwl->len; i++) {
+        if (i > 0) pwl[i].prog->len++;
+
         num_states *= pwl[i].prog->len;
+
+        offsets[i] = cum;
+        cum += pwl[i].prog->len;
     }
 
-    printf("num_states = %d\n", num_states);
+    for (i = 0; i < pwl->len - 1; i++) {
+        as = and_states[i];
+        as.state += offsets[as.branch];
+    }
+
     states = mal(num_states * sizeof(int*));
     for (i = 0; i < num_states; i++) {
         states[i] = mal(pwl->len * sizeof(int));
     }
 
     populate_states(pwl, states, num_states);
-    print_states(states, num_states, pwl->len);
+    print_states(states, num_states, pwl->len, offsets);
 
-    /* build transition table for A0..Ak, change to build this while compiling ProgWithLook */
+    t = product_transitions(states, num_states, offsets, pwl);
 
+    fs = create_state_list(pwl->len);
+    is = create_state_list(pwl->len);
+    for (i = 0; i < pwl->len; i++) {
+        fs->states[i] = i > 0 ? pwl[i].prog->len - 2 : pwl[i].prog->len - 1;
+        fs->states[i] += offsets[i];
+
+        is->states[i] = i > 0 ? offsets[i] + pwl[i].prog->len - 1 : offsets[i];
+    }
+
+    print_dot(t, is, fs);
+
+    remove_dead_states(&t, is);
+
+    print_dot(t, is, fs);
 
     return p;
+}
+
+#if 0
+static int
+contains(int *hay, int len, int needle)
+{
+    int i;
+
+    for (i = 0; i < len; i++) {
+        if (hay[i] == needle) return 1;
+    }
+
+    return 0;
+}
+#endif
+
+static int
+contains_and(int original_and, int *states, int *offsets, int len)
+{
+    int i;
+
+    for (i = 0; i < len; i++) {
+        if (original_and == states[i] + offsets[i])
+            return 1;
+    }
+
+    return 0;
+}
+
+static Transition*
+product_transitions(int **states, int num_states, int *offsets, ProgWithLook *pwl)
+{
+    Transition *t;
+    Pair *p, *pp;
+    StateList *states_from, *states_to;
+    int r1, r2, i, q, q_prime, satisfied, original_and, fs;
+    int is_fresh1, is_fresh2;
+    int *t1, *t2;
+
+    t = nil;
+
+    for (i = 0; i < pwl->len; i++) printf("offsets[%d] = %d\n", i, offsets[i]);
+
+    for (r1 = 0; r1 < num_states; r1++) {
+        for (r2 = 0; r2 < num_states; r2++) {
+            t1 = states[r1];
+            t2 = states[r2];
+
+            p = alphabet;
+            printf("\n");
+            while (p != nil) {
+                satisfied = 1;
+
+                int z1;
+                printf("(");
+                for (z1 = 0; z1 < pwl->len; z1++) {
+                    printf("%d", t1[z1] + offsets[z1]);
+                    if (z1 != pwl->len - 1) printf(", ");
+                }
+                if (p->label == Epsilon) {
+                    printf(", Eps, (");
+                } else if (p->label == Input) {
+                    printf(", %c, (", p->info);
+                }
+                for (z1 = 0; z1 < pwl->len; z1++) {
+                    printf("%d", t2[z1] + offsets[z1]);
+                    if (z1 != pwl->len - 1) printf(", ");
+                }
+                printf(") -> ");
+
+                int theone = 0;
+                if (t1[0] + offsets[0] == 0 && t1[1] + offsets[1] == 9 && t1[0] + offsets[0] == 1 && t1[1] + offsets[1] == 9) {
+                    theone = 1;
+                }
+
+                for (i = pwl->len - 1; i >= 0; i--) {
+                    q = t1[i] + offsets[i];
+                    q_prime = t2[i] + offsets[i];
+
+                    /* α = ε and q_i' = q_i */
+                    if (p->label == Epsilon && q == q_prime) {
+                        continue;
+                    }
+
+                    fs = i > 0 ? pwl[i].prog->len - 2 : pwl[i].prog->len - 1;
+                    /* (q_i, α, q_i') ∈ δ_i */
+                    if (transition_exists(t1[i], t2[i], pwl[i].prog, p, fs)) {
+                        continue;
+                    }
+
+                    if (i == 0) {
+                        satisfied = 0;
+                        break;
+                    }
+
+                    /* q_i = q_i' = ⊥ */
+                    is_fresh1 = t1[i] == pwl[i].prog->len - 1;
+                    is_fresh2 = t2[i] == pwl[i].prog->len - 1;
+
+                    original_and = and_states[i - 1].state;
+
+                    if (is_fresh1 && is_fresh2) {
+                        if (contains_and(original_and, t2, offsets, pwl->len)) {
+                            satisfied = 0;
+                            break;
+                        } else {
+                            continue;
+                        }
+                    }
+
+                    /* q_i = ⊥, q_i' = I_i */
+                    if (is_fresh1 && q_prime == offsets[i]) {
+                        if (!contains_and(original_and, t2, offsets, pwl->len)) {
+                            satisfied = 0;
+                            break;
+                        } else {
+                            continue;
+                        }
+                    }
+
+                    satisfied = 0;
+                    break;
+                }
+
+                if (satisfied) {
+                    printf("YES\n");
+                } else {
+                    printf("NO\n");
+                }
+
+                if (satisfied) {
+                    states_from = mal(sizeof(StateList));
+                    states_from->states = mal(pwl->len * sizeof(int));
+                    states_from->len = pwl->len;
+
+                    states_to = mal(sizeof(StateList));
+                    states_to->states = mal(pwl->len * sizeof(int));
+                    states_to->len = pwl->len;
+
+                    for (i = 0; i < pwl->len; i++) {
+                        states_from->states[i] = t1[i] + offsets[i];
+                        states_to->states[i] = t2[i] + offsets[i];
+                    }
+
+                    pp = mal(sizeof(Pair));
+                    pp->label = p->label;
+                    pp->info = p->info;
+                    pp->next = nil;
+                    add_transition(&t, states_from, states_to, pp);
+                }
+
+                states_from = nil;
+                states_to = nil;
+
+                p = p->next;
+            }
+
+        }
+    }
+
+    return t;
 }
 
 static void
@@ -122,7 +343,7 @@ populate_states(ProgWithLook *pwl, int **states, int num_states)
 
     cpy = mal(num_states * sizeof(int*));
     for (i = 0; i < num_states; i++) {
-        cpy[i] = mal(pwl->len * sizeof(int));
+        cpy[i] = malloc(pwl->len * sizeof(int));
     }
 
     for (i = 0; i < pwl[0].prog->len; i++) {
@@ -148,7 +369,7 @@ populate_states(ProgWithLook *pwl, int **states, int num_states)
         rem_look--;
 
         for (i = 0; i < num_states; i++) {
-            for (j = 0; j < pwl[0].prog->len; j++) {
+            for (j = 0; j < pwl->len; j++) {
                 cpy[i][j] = states[i][j];
             }
         }
@@ -183,12 +404,12 @@ count(Regexp *r, int *counts, int index)
         counts[index] += 1;
         return;
     case Paren:
-        counts[index] += 2;
+//        counts[index] += 2;
+
         count(r->left, counts, index);
         return;
     case Look:
-        count(r->left, counts, sl + 1);
-        sl++;
+        count(r->left, counts, ++sl);
         return;
     case Quest:
         counts[index] += 1;
@@ -215,11 +436,16 @@ emit(Regexp *r, ProgWithLook *pwl)
         fatal("bad emit");
 
     case Look:
+        and_states[ci].state = pc - pwl[cb].prog->start;
+        and_states[ci].branch = cb;
+
         p1 = pc;
-        pc = pwl[ci + 1].prog->start;
+        pc = pwl[++ci].prog->start;
+
+        cb++;
         emit(r->left, pwl);
+        cb--;
         pc = p1;
-        ci++;
         break;
 
     case Alt:
@@ -243,20 +469,23 @@ emit(Regexp *r, ProgWithLook *pwl)
         pc->opcode = Char;
         pc->c = r->ch;
         pc++;
+        add_to_pair_list(&alphabet, Input, r->ch);
         break;
 
     case Dot:
         pc++->opcode = Any;
+        /* TODO add to alphabet */
         break;
 
     case Paren:
-        pc->opcode = Save;
-        pc->n = 2*r->n;
-        pc++;
+//        pc->opcode = Save;
+//        pc->n = 2*r->n;
+//        pc++;
+//        emit(r->left, pwl);
+//        pc->opcode = Save;
+//        pc->n = 2*r->n + 1;
+//        pc++;
         emit(r->left, pwl);
-        pc->opcode = Save;
-        pc->n = 2*r->n + 1;
-        pc++;
         break;
 
     case Quest:

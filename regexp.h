@@ -19,12 +19,21 @@ typedef struct ProgWithLook ProgWithLook;
 
 typedef struct Inst Inst;
 
+typedef struct AndState AndState;
+
 struct RegexpWithLook
 {
     /* number of lookaheads in the REwLA */
     int k;
 
     Regexp *regexp;
+};
+
+struct AndState {
+    /* branch of "and" state, 0=main, 1=lookahead 1, 2=lookahead 2... */
+    int branch;
+
+    int state;
 };
 
 struct Regexp
@@ -85,7 +94,7 @@ enum	/* Inst.opcode */
     Jmp,
     Split,
     Any,
-    Save,
+    Save
 };
 
 Prog *compile(RegexpWithLook*);
