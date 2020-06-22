@@ -64,6 +64,8 @@ RegexpWithLook *regWithLook(Regexp *reg, int k);
 void printre(Regexp*);
 void fatal(char*, ...);
 void *mal(int);
+void *imal(int, int);
+void *umal(int);
 
 struct Prog
 {

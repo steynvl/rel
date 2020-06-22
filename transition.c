@@ -25,6 +25,15 @@ static int contains_state_list(StateList **list, int len, StateList *target)
     return 0;
 }
 
+Prog* convert_to_prog(Transition **transitions, StateList *is, StateList *fs)
+{
+    Prog *p;
+
+    p = nil;
+
+    return p;
+}
+
 void remove_dead_states(Transition **transitions, StateList *initial_states)
 {
     TransitionFrag *tf;
@@ -255,6 +264,18 @@ Pair* get_transition(int from, int to, Prog *prog)
 }
 #endif
 
+Pair* make_pair(int label, int info)
+{
+   Pair *p;
+
+   p = umal(sizeof(Pair));
+   p->label = label;
+   p->info = info;
+   p->next = nil;
+
+   return p;
+}
+
 void add_to_pair_list(Pair **p, int label, int info)
 {
     Pair *t, *tt;
@@ -290,8 +311,8 @@ StateList* create_state_list(int len)
 {
     StateList *sl;
 
-    sl = mal(sizeof(StateList));
-    sl->states = mal(len * sizeof(int));
+    sl = umal(sizeof(StateList));
+    sl->states = umal(len * sizeof(int));
     sl->len = len;
 
     return sl;

@@ -43,10 +43,13 @@ struct StateList {
 void add_transition(Transition**, StateList*, StateList*, Pair*);
 int transition_exists(int, int, Prog*, Pair*, int);
 Pair* get_transition(int, int, Prog*);
+
 void remove_dead_states(Transition**, StateList*);
+Prog* convert_to_prog(Transition**, StateList*, StateList*);
 
 StateList* create_state_list(int);
 
+Pair* make_pair(int, int);
 void add_to_pair_list(Pair**, int, int);
 void print_pair_list(Pair*);
 

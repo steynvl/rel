@@ -183,14 +183,32 @@ parse(char *s)
 void*
 mal(int n)
 {
+    return imal(n, 0);
+}
+
+void*
+imal(int n, int val)
+{
     void *v;
 
     v = malloc(n);
     if (v == nil)
         fatal("out of memory");
-    memset(v, 0, n);
+    memset(v, val, n);
     return v;
-}	
+}
+
+void*
+umal(int n)
+{
+    void *v;
+
+    v = malloc(n);
+    if (v == nil)
+        fatal("out of memory");
+
+    return v;
+}
 
 Regexp*
 reg(int type, Regexp *left, Regexp *right)
