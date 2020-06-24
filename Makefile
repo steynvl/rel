@@ -3,12 +3,13 @@
 # license that can be found in the LICENSE file.
 
 CC=gcc
-CFLAGS=-ggdb -Wall -O2
+CFLAGS=-ggdb -Wall -O2 `pkg-config --cflags --libs glib-2.0`
 
 TARG=re
 OFILES=\
 	compile.o\
 	transition.o\
+	utils.o\
 	main.o\
 	pike.o\
 	sub.o\
@@ -16,11 +17,12 @@ OFILES=\
 
 HFILES=\
 	regexp.h\
+	utils.h\
 	transition.h\
 	y.tab.h\
 
 re: $(OFILES)
-	$(CC) -o re $(OFILES)
+	$(CC) -o re $(OFILES) -lglib-2.0
 
 %.o: %.c $(HFILES)
 	$(CC) -c $(CFLAGS) $*.c

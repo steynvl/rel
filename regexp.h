@@ -73,8 +73,7 @@ struct Prog
     int len;
 };
 
-struct ProgWithLook
-{
+struct ProgWithLook {
     Prog *prog;
     int len;
 };
