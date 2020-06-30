@@ -24,7 +24,8 @@ static Alphabet* alphabet;
 /* --- function prototypes -------------------------------------------------- */
 static void count(Regexp*, int*, int);
 static Prog* construct_product(ProgWithLook*);
-static TransitionTable* product_transitions(int**, int, int*, ProgWithLook*);
+static void product_transitions(TransitionTable*, TransitionTable*, int**,
+                                int, int*, ProgWithLook*, StateList*);
 static void emit(Regexp*, ProgWithLook*);
 static void populate_states(ProgWithLook*, int**, int);
 
@@ -97,9 +98,9 @@ static Prog*
 construct_product(ProgWithLook *pwl)
 {
     AndState as;
-    TransitionTable *transition_table;
+    TransitionTable *tt_from, *tt_to;
     /* final and initial states of the product automaton */
-    StateList *fs, *is;
+    StateList*fs, *is;
     int *offsets;
     int **states;
     int i, num_states, cum;
@@ -127,8 +128,6 @@ construct_product(ProgWithLook *pwl)
     print_states(states, num_states, pwl->len, offsets);
 #endif
 
-    transition_table = product_transitions(states, num_states, offsets, pwl);
-
     fs = create_state_list(pwl->len);
     is = create_state_list(pwl->len);
     for (i = 0; i < pwl->len; i++) {
@@ -138,11 +137,15 @@ construct_product(ProgWithLook *pwl)
         is->states[i] = i > 0 ? offsets[i] + pwl[i].prog->len - 1 : offsets[i];
     }
 
+    tt_from = transition_table_new();
+    tt_to = transition_table_new();
+    product_transitions(tt_from, tt_to, states, num_states, offsets, pwl, fs);
+
 #if DEBUG
-    print_dot(transition_table, is, fs);
+    print_dot(tt_from, is, fs);
 #endif
 
-    return convert_to_prog(transition_table, is, fs);
+    return convert_to_prog(tt_from, tt_to, is, fs);
 }
 
 static int
@@ -158,21 +161,23 @@ contains_and(int original_and, int *states, int *offsets, int len)
     return 0;
 }
 
-static TransitionTable*
-product_transitions(int **states, int num_states, int *offsets, ProgWithLook *pwl)
+static void
+product_transitions(TransitionTable *tt_from, TransitionTable *tt_to,
+                    int **states, int num_states, int *offsets,
+                    ProgWithLook *pwl, StateList *final_states)
 {
-    TransitionTable *transition_table;
-    TransitionLabel *tl;
-    Alphabet *sigma;
+    TransitionLabel *tl, *alph_sym;
+    GHashTableIter iter;
+    gpointer key, val;
+    gboolean satisfied, is_eq;
     StateList *states_from, *states_to;
-    int r1, r2, i, q, q_prime, satisfied, original_and, fs;
+    int r1, r2, i, q, q_prime, original_and, fs;
     int is_fresh1, is_fresh2, does_contain_and;
     int *t1, *t2;
 
-    transition_table = transition_table_new();
-
 #if DEBUG
-    for (i = 0; i < pwl->len; i++) printf("offsets[%d] = %d\n", i, offsets[i]);
+    for (i = 0; i < pwl->len; i++)
+        printf("offsets[%d] = %d\n", i, offsets[i]);
 #endif
 
     for (r1 = 0; r1 < num_states; r1++) {
@@ -180,46 +185,28 @@ product_transitions(int **states, int num_states, int *offsets, ProgWithLook *pw
             t1 = states[r1];
             t2 = states[r2];
 
-            sigma = alphabet;
-            while (sigma != nil) {
-                satisfied = 1;
-
-#if 0
-                int z1;
-                printf("(");
-                for (z1 = 0; z1 < pwl->len; z1++) {
-                    printf("%d", t1[z1] + offsets[z1]);
-                    if (z1 != pwl->len - 1) printf(", ");
-                }
-                if (sigma->label == Epsilon) {
-                    printf(", Eps, (");
-                } else if (sigma->label == Input) {
-                    printf(", %c, (", sigma->info);
-                }
-                for (z1 = 0; z1 < pwl->len; z1++) {
-                    printf("%d", t2[z1] + offsets[z1]);
-                    if (z1 != pwl->len - 1) printf(", ");
-                }
-                printf(") -> ");
-#endif
+            g_hash_table_iter_init(&iter, alphabet->ht);
+            while (g_hash_table_iter_next(&iter, &key, &val)) {
+                alph_sym = (TransitionLabel*) key;
+                satisfied = TRUE;
 
                 for (i = pwl->len - 1; i >= 0; i--) {
                     q = t1[i] + offsets[i];
                     q_prime = t2[i] + offsets[i];
 
                     /* α = ε and q_i' = q_i */
-                    if (sigma->label == Epsilon && q == q_prime) {
+                    if (alph_sym->label == Epsilon && q == q_prime) {
                         continue;
                     }
 
                     fs = i > 0 ? pwl[i].prog->len - 2 : pwl[i].prog->len - 1;
                     /* (q_i, α, q_i') ∈ δ_i */
-                    if (path_exists(t1[i], t2[i], pwl[i].prog, sigma, fs)) {
+                    if (path_exists(t1[i], t2[i], pwl[i].prog, alph_sym, fs)) {
                         continue;
                     }
 
                     if (i == 0) {
-                        satisfied = 0;
+                        satisfied = FALSE;
                         break;
                     }
 
@@ -232,7 +219,7 @@ product_transitions(int **states, int num_states, int *offsets, ProgWithLook *pw
 
                     if (is_fresh1 && is_fresh2) {
                         if (does_contain_and) {
-                            satisfied = 0;
+                            satisfied = FALSE;
                             break;
                         }
                         continue;
@@ -241,47 +228,40 @@ product_transitions(int **states, int num_states, int *offsets, ProgWithLook *pw
                     /* q_i = ⊥, q_i' = I_i */
                     if (is_fresh1 && q_prime == offsets[i]) {
                         if (!does_contain_and) {
-                            satisfied = 0;
+                            satisfied = FALSE;
                             break;
                         }
                         continue;
                     }
 
-                    satisfied = 0;
+                    satisfied = FALSE;
                     break;
                 }
-
-#if 0
-                if (satisfied) {
-                    printf("YES\n");
-                } else {
-                    printf("NO\n");
-                }
-#endif
 
                 if (satisfied) {
                     states_from = create_state_list(pwl->len);
                     states_to = create_state_list(pwl->len);
-
+                    is_eq = TRUE;
                     for (i = 0; i < pwl->len; i++) {
                         states_from->states[i] = t1[i] + offsets[i];
                         states_to->states[i] = t2[i] + offsets[i];
+                        if (states_from->states[i] != states_to->states[i])
+                            is_eq = FALSE;
                     }
 
-                    tl = make_transition_label(sigma->label, sigma->info);
-                    add_sl_transition(transition_table, states_from, states_to, tl);
+                    if (!(is_eq && state_list_equals(states_from, final_states))) {
+                        tl = make_transition_label(alph_sym->label, alph_sym->info);
+                        add_sl_transition(tt_from, states_from, states_to, tl);
+                        add_sl_transition(tt_to, states_to, states_from, tl);
+                    }
                 }
 
                 states_from = nil;
                 states_to = nil;
-
-                sigma = sigma->next;
             }
 
         }
     }
-
-    return transition_table;
 }
 
 static void

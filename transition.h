@@ -1,5 +1,6 @@
 #include <glib.h>
 #include "regexp.h"
+#include "hashset.h"
 
 typedef struct Transition Transition;
 typedef struct TransitionFrag TransitionFrag;
@@ -8,6 +9,7 @@ typedef struct StateList StateList;
 typedef struct CollectionStateList CollectionStateList;
 typedef struct TransitionTable TransitionTable;
 typedef struct TransitionLabel TransitionLabel;
+typedef struct StateAndTransitionLabel StateAndTransitionLabel;
 
 enum       /* TransitionLabel.label */
 {
@@ -24,8 +26,7 @@ guint state_list_hash(gconstpointer key);
 gboolean state_list_eq(gconstpointer, gconstpointer);
 
 struct CollectionStateList {
-    StateList **state_lists;
-    int len;
+    HashSet *state_sets;
 };
 guint collec_state_list_hash(gconstpointer);
 gboolean collec_state_list_eq(gconstpointer, gconstpointer);
@@ -41,24 +42,30 @@ struct TransitionLabel {
 guint transition_label_hash(gconstpointer);
 gboolean transition_label_eq(gconstpointer, gconstpointer);
 
+struct StateAndTransitionLabel {
+    int state;
+    TransitionLabel *tl;
+};
+guint state_and_tl_hash(gconstpointer);
+gboolean state_and_tl_eq(gconstpointer, gconstpointer);
+
 struct Alphabet {
-    int label;
-    int info;
-    Alphabet *next;
+    GHashTable *ht;
 };
 
 TransitionTable* transition_table_new();
 void transition_table_free(TransitionTable*);
 
-int path_exists(int, int, Prog*, Alphabet*, int);
+int path_exists(int, int, Prog*, TransitionLabel*, int);
 
 void add_sl_transition(TransitionTable*, StateList*, StateList*, TransitionLabel*);
 
-Prog* convert_to_prog(TransitionTable*, StateList*, StateList*);
+Prog* convert_to_prog(TransitionTable*, TransitionTable*, StateList*, StateList*);
 
 TransitionLabel* make_epsilon_tl();
 TransitionLabel* make_char_tl(int);
 TransitionLabel* make_transition_label(int, int);
+StateAndTransitionLabel* make_state_and_tl(int, TransitionLabel*);
 
 void add_to_alphabet(Alphabet**, int, int);
 void print_alphabet(Alphabet*);
@@ -67,3 +74,4 @@ void print_dot(TransitionTable*, StateList*, StateList*);
 
 StateList* create_state_list(int);
 int state_list_equals(StateList*, StateList*);
+void print_state_list(StateList*);

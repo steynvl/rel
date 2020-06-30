@@ -9,7 +9,9 @@ TARG=re
 OFILES=\
 	compile.o\
 	transition.o\
+	buildprog.o\
 	utils.o\
+	hashset.o\
 	main.o\
 	pike.o\
 	sub.o\
@@ -18,6 +20,7 @@ OFILES=\
 HFILES=\
 	regexp.h\
 	utils.h\
+	hashset.h\
 	transition.h\
 	y.tab.h\
 

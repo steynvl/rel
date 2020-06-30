@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#ifndef RE1_REGEXP_H
+#define RE1_REGEXP_H
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -123,3 +126,5 @@ Sub *update(Sub*, int, char*);
 void decref(Sub*);
 
 int pikevm(Prog*, char*, char**, int);
+
+#endif

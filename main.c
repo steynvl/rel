@@ -27,7 +27,7 @@ main(int argc, char **argv)
     printf("\n");
 
     prog = compile(rwl);
-    // printprog(prog);
+    printprog(prog);
 
     for (i = 2; i < argc; i++) {
         printf("#%d %s\n", i-1, argv[i]);

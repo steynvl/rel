@@ -1,5 +1,10 @@
 #include <assert.h>
 #include "transition.h"
+#include "hashset.h"
+
+Prog *build_prog(GHashTable *moves, HashSet *final_states);
+
+#define DEBUG 1
 
 void add_sl_transition(TransitionTable *tt, StateList *from,
                        StateList *to, TransitionLabel *label)
@@ -27,47 +32,319 @@ void add_sl_transition(TransitionTable *tt, StateList *from,
     }
 }
 
-static CollectionStateList*
-eps_closure(TransitionTable *transition_table, StateList *curr_state, size_t *length)
+static void add_tl_transition(GHashTable *ht, TransitionLabel *key, StateList *to)
 {
-    CollectionStateList *reachable;
-    GHashTable *reached;
+    gpointer value;
+    HashSet *to_states;
 
-    reachable = nil;
-
-    return reachable;
+    value = g_hash_table_lookup(ht, key);
+    if (value == NULL) {
+        to_states = hash_set_new(state_list_hash, state_list_eq);
+        hash_set_add(to_states, to);
+        g_hash_table_insert(ht, key, to_states);
+    } else {
+        to_states = (HashSet*) value;
+        if (!hash_set_add(to_states, to)) {
+            g_hash_table_replace(ht, key, to_states);
+        }
+    }
 }
 
-Prog* convert_to_prog(TransitionTable *transition_table, StateList *is, StateList *fs)
+static void
+visit_forward(TransitionTable *tt_from, StateList *sl, HashSet *reached)
 {
-    GHashTable *reached_states;
-    CollectionStateList *to_visit[1024];
-    Prog *p;
+    GHashTable *ht;
+    GHashTableIter iter;
+    gpointer key, value;
+    GSList *to_states;
+
+    if (hash_set_contains(reached, sl))
+        return;
+
+    hash_set_add(reached, sl);
+    value = g_hash_table_lookup(tt_from->ht, sl);
+    if (value == NULL)
+        return;
+
+    ht = (GHashTable*) value;
+
+    g_hash_table_iter_init(&iter, ht);
+    while (g_hash_table_iter_next(&iter, &key, &value)) {
+        to_states = (GSList*) value;
+        while (to_states != NULL) {
+            visit_forward(tt_from, to_states->data, reached);
+            to_states = g_slist_next(to_states);
+        }
+    }
+}
+
+static HashSet*
+get_reachable_states_from(TransitionTable *tt_from, StateList *sl)
+{
+    HashSet *result;
+
+    result = hash_set_new(state_list_hash, state_list_eq);
+    visit_forward(tt_from, sl, result);
+    return result;
+}
+
+static HashSet*
+get_reaching_states(TransitionTable *tt_to, StateList *sl)
+{
+    return get_reachable_states_from(tt_to, sl);
+}
+
+static HashSet*
+get_alive_states(TransitionTable *tt_from, TransitionTable *tt_to,
+                 StateList *is, StateList *fs)
+{
+    HashSet *alive_states, *reachable_from_init, *reaching_final;
+    HashSetIter iter;
+    gpointer key;
+
+    reachable_from_init = get_reachable_states_from(tt_from, is);
+    reaching_final = get_reaching_states(tt_to, fs);
+
+    alive_states = hash_set_new(state_list_hash, state_list_eq);
+
+    hash_set_iter_init(&iter, reachable_from_init);
+    while (hash_set_iter_next(&iter, &key)) {
+        if (hash_set_contains(reaching_final, key)) {
+            hash_set_add(alive_states, key);
+        }
+    }
+
+    return alive_states;
+}
+
+static CollectionStateList*
+eps_closure(TransitionTable *tt, StateList *curr_state, HashSet *alive_states)
+{
+    CollectionStateList *ret;
+    HashSet *reached;
+    StateList *sl, *cs;
+    TransitionLabel *tl;
+    GQueue *to_visit;
+    GHashTableIter iter;
+    GHashTable *ht;
+    GSList *to_states;
+    gpointer key, value;
+
+    to_visit = g_queue_new();
+    reached = hash_set_new(state_list_hash, state_list_eq);
+
+    g_queue_push_head(to_visit, curr_state);
+    hash_set_add(reached, curr_state);
+
+    while (!g_queue_is_empty(to_visit)) {
+        sl = g_queue_pop_head(to_visit);
+
+        value = g_hash_table_lookup(tt->ht, sl);
+        if (value == NULL)
+            continue;
+
+        ht = (GHashTable*) value;
+
+        g_hash_table_iter_init(&iter, ht);
+        while (g_hash_table_iter_next(&iter, &key, &value)) {
+            tl = (TransitionLabel*) key;
+            if (tl->label == Epsilon) {
+                to_states = (GSList*) value;
+                while (to_states != NULL) {
+                    cs = (StateList*) to_states->data;
+                    if (hash_set_contains(alive_states, cs) && !hash_set_contains(reached, cs)) {
+                        g_queue_push_head(to_visit, cs);
+                        hash_set_add(reached, cs);
+                    }
+                    to_states = g_slist_next(to_states);
+                }
+            }
+
+        }
+    }
+
+    ret = umal(sizeof(CollectionStateList));
+    ret->state_sets = reached;
+
+    return ret;
+}
+
+static CollectionStateList*
+collec_sl_eps_closure(TransitionTable *tt, HashSet *states, HashSet *alive_states)
+{
+    CollectionStateList *ret;
+    HashSetIter iter;
+    StateList *sl;
+    gpointer val;
+
+    ret = umal(sizeof(CollectionStateList));
+    ret->state_sets = hash_set_new(state_list_hash, state_list_eq);
+
+    hash_set_iter_init(&iter, states);
+    while (hash_set_iter_next(&iter, &val)) {
+        sl = (StateList*) val;
+        hash_set_add_all(ret->state_sets, eps_closure(tt, sl, alive_states)->state_sets);
+    }
+
+    return ret;
+}
+
+static void print_sl_hash_set(HashSet *hs)
+{
+    HashSetIter iter;
+    gpointer val;
+
+    hash_set_iter_init(&iter, hs);
+    while (hash_set_iter_next(&iter, &val)) {
+        print_state_list((StateList*) val);
+    }
+}
+
+static gboolean is_final_configuration(HashSet *states, StateList *final_states)
+{
+    HashSetIter iter;
+    gpointer val;
+
+    hash_set_iter_init(&iter, states);
+    while (hash_set_iter_next(&iter, &val)) {
+        if (state_list_equals((StateList*) val, final_states))
+            return TRUE;
+    }
+    return FALSE;
+}
+
+Prog* convert_to_prog(TransitionTable *tt_from, TransitionTable* tt_to,
+                      StateList *is, StateList *fs)
+{
+    GHashTable *reached_states, *moves;
+    GHashTableIter iter;
+    GQueue *to_visit;
+    GSList *to_states;
+    gpointer key, value, lookup, hs_val;
+    HashSetIter hs_iter;
     CollectionStateList *reachable, *curr_state, *next_state;
-    size_t length;
-    int curr_state_id, tv;
+    HashSet *alive_states, *hs, *final_states;
+    TransitionLabel *tl;
+    int curr_state_id, next_state_id, index;
+
+    alive_states = get_alive_states(tt_from, tt_to, is, fs);
+
+#if DEBUG
+    printf("ALIVE STATES:\n");
+    print_sl_hash_set(alive_states);
+#endif
 
     reached_states = g_hash_table_new(collec_state_list_hash, collec_state_list_eq);
-
-    tv = 0;
-    reachable = eps_closure(transition_table, is, &length);
+    to_visit = g_queue_new();
+    reachable = eps_closure(tt_from, is, alive_states);
     if (reachable != nil) {
         g_hash_table_insert(reached_states, reachable, 0);
-        to_visit[tv++] = reachable;
+        g_queue_push_head(to_visit, reachable);
     }
 
-    while (tv > 0) {
-        curr_state = to_visit[--tv];
+#if DEBUG
+    printf("REACHABLE FROM INIT:\n");
+    print_sl_hash_set(reachable->state_sets);
+#endif
+
+    moves = g_hash_table_new(g_direct_hash, g_direct_equal);
+
+    while (!g_queue_is_empty(to_visit)) {
+        curr_state = g_queue_pop_head(to_visit);
         curr_state_id = GPOINTER_TO_INT(g_hash_table_lookup(reached_states, curr_state));
+
+#if DEBUG
         printf("curr_state_id = %d\n", curr_state_id);
+#endif
+        GHashTable *temp_ht;
+        temp_ht = g_hash_table_new(transition_label_hash, transition_label_eq);
+
+        hash_set_iter_init(&hs_iter, curr_state->state_sets);
+        while (hash_set_iter_next(&hs_iter, &hs_val)) {
+            value = g_hash_table_lookup(tt_from->ht, hs_val);
+            if (value == nil)
+                continue;
+
+            g_hash_table_iter_init(&iter, value);
+            while (g_hash_table_iter_next(&iter, &key, &value)) {
+                tl = (TransitionLabel*) key;
+
+                if (tl->label == Epsilon) continue;
+
+                to_states = (GSList*) value;
+                while (to_states != nil) {
+                    if (hash_set_contains(alive_states, to_states->data)) {
+#if DEBUG
+                        printf("Transition: %c -> state: ", tl->info);
+                        print_state_list(to_states->data);
+#endif
+                        add_tl_transition(temp_ht, tl, to_states->data);
+                    }
+                    to_states = to_states->next;
+                }
+            }
+        }
+
+        g_hash_table_iter_init(&iter, temp_ht);
+        while (g_hash_table_iter_next(&iter, &key, &value)) {
+            tl = (TransitionLabel*) key;
+            assert(tl->label == Input);
+
+            hs = (HashSet*) value;
+            next_state = collec_sl_eps_closure(tt_from, hs, alive_states);
+#if DEBUG
+            printf("NEXT STATE [%c]:\n", tl->info);
+            print_sl_hash_set(next_state->state_sets);
+#endif
+
+            lookup = g_hash_table_lookup(reached_states, next_state);
+            if (lookup == nil) {
+                index = g_hash_table_size(reached_states);
+                g_hash_table_insert(reached_states, next_state, GINT_TO_POINTER(index));
+                g_queue_push_head(to_visit, next_state);
+                next_state_id = index;
+            } else {
+                next_state_id = GPOINTER_TO_INT(lookup);
+            }
+
+#if DEBUG
+            printf("size = %d, curr_state_id = %d\n", g_hash_table_size(moves), curr_state_id);
+#endif
+            value = g_hash_table_lookup(moves, GINT_TO_POINTER(curr_state_id));
+            if (value == nil) {
+#if DEBUG
+                printf("Adding new entry to moves %d -> %d [%c]\n",
+                       curr_state_id, next_state_id, tl->info);
+#endif
+                hs = hash_set_new(state_and_tl_hash, state_and_tl_eq);
+                hash_set_add(hs, make_state_and_tl(next_state_id, tl));
+                g_hash_table_insert(moves, GINT_TO_POINTER(curr_state_id), hs);
+            } else {
+#if DEBUG
+                printf("Adding to existing entry %d -> %d [%c]\n",
+                       curr_state_id, next_state_id, tl->info);
+#endif
+                hs = (HashSet*) value;
+                hash_set_add(hs, make_state_and_tl(next_state_id, tl));
+                g_hash_table_replace(moves, GINT_TO_POINTER(curr_state_id), hs);
+            }
+        }
     }
 
-    p = nil;
+    final_states = hash_set_new(g_direct_hash, g_direct_equal);
+    g_hash_table_iter_init(&iter, reached_states);
+    while (g_hash_table_iter_next(&iter, &key, &value)) {
+        hs = ((CollectionStateList*) key)->state_sets;
+        if (is_final_configuration(hs, fs)) {
+            hash_set_add(final_states, value);
+        }
+    }
 
-    return p;
+    return build_prog(moves, final_states);
 }
 
-int path_exists(int from, int to, Prog *prog, Alphabet *alph, int final_state)
+int path_exists(int from, int to, Prog *prog,
+                TransitionLabel *alph_sym, int final_state)
 {
     Inst *inst;
     int to1, to2;
@@ -76,9 +353,9 @@ int path_exists(int from, int to, Prog *prog, Alphabet *alph, int final_state)
     if (inst == nil)
         return 0;
 
-    switch (alph->label) {
+    switch (alph_sym->label) {
     default:
-        fatal("bad label in transition_exists");
+        fatal("bad label in path_exists");
 
     case Epsilon:
         if (from == prog->len - 1 && from == final_state + 1) return 0;
@@ -97,7 +374,7 @@ int path_exists(int from, int to, Prog *prog, Alphabet *alph, int final_state)
         if (from == to && from == final_state) {
             return 1;
         } else {
-            return to == from + 1 && inst->opcode == Char && inst->c == alph->info;
+            return to == from + 1 && inst->opcode == Char && inst->c == alph_sym->info;
         }
 //    case Sigma:
 //        return from == to && from == final_state;
@@ -153,18 +430,6 @@ TransitionLabel* make_transition_label(int label, int info)
     return tl;
 }
 
-Alphabet* make_alphabet_pair(int label, int info)
-{
-   Alphabet *a;
-
-   a = umal(sizeof(Alphabet));
-   a->label = label;
-   a->info = info;
-   a->next = nil;
-
-   return a;
-}
-
 StateList* create_state_list(int len)
 {
     StateList *sl;
@@ -174,6 +439,17 @@ StateList* create_state_list(int len)
     sl->len = len;
 
     return sl;
+}
+
+StateAndTransitionLabel* make_state_and_tl(int state, TransitionLabel *tl)
+{
+    StateAndTransitionLabel *s;
+
+    s = umal(sizeof(StateAndTransitionLabel));
+    s->state = state;
+    s->tl = tl;
+
+    return s;
 }
 
 /* --- utility functions -------------------------------------------------- */
@@ -208,28 +484,15 @@ int state_list_equals(StateList *f, StateList *t)
 
 void add_to_alphabet(Alphabet **alph, int label, int info)
 {
-    Alphabet *t, *tt;
-
     if (*alph == nil) {
-        *alph = make_alphabet_pair(label, info);
-    } else {
-        t = *alph;
-        tt = t;
-        while (t != nil) {
-            /* is the item already in the list? */
-            if (t->label == label && t->info == info) {
-                return;
-            }
-
-            tt = t;
-            t = t->next;
-        }
-
-        tt->next = make_alphabet_pair(label, info);
+        *alph = umal(sizeof(Alphabet));
+        (*alph)->ht = g_hash_table_new(transition_label_hash, transition_label_eq);
     }
+
+    g_hash_table_add((*alph)->ht, (gpointer) make_transition_label(label, info));
 }
 
-/* --- printing functions -------------------------------------------------- */
+/* --- printing functions ------------------------------------------------------ */
 
 void print_dot(TransitionTable *tt,
                StateList* initial_states,
@@ -310,45 +573,55 @@ void print_dot(TransitionTable *tt,
     printf("}\n");
 }
 
-void print_alphabet(Alphabet *a)
+void print_alphabet(Alphabet *alph)
 {
-    Alphabet *t;
-    int eps;
+    GList* key;
+    TransitionLabel *tl;
 
-    t = a;
-    eps = 0;
+    key = g_hash_table_get_keys(alph->ht);
+
     printf("[");
-    while (t != nil) {
-        switch (t->label) {
+    while (key != NULL) {
+        tl = (TransitionLabel*) key->data;
+        switch (tl->label) {
         default:
-            fatal("bad label in print_pair_list");
+            fatal("bad label in print_alphabet");
         case Epsilon:
-            if (!eps) {
-                printf("ε");
-                eps = 1;
-            }
+            printf("ε");
             break;
         case SubInfo:
-            printf("SUB(%d)", t->info);
+            printf("SUB(%d)", tl->info);
             break;
         case Input:
-            printf("%c", t->info);
+            printf("%c", tl->info);
             break;
-//        case Sigma:
-//            printf("DOT");
-//            break;
+            //        case Sigma:
+            //            printf("DOT");
+            //            break;
         }
-        if (t->next != nil) {
-            if (!(t->next->label == Epsilon && eps)) {
-                printf(", ");
-            }
+
+        if (key->next != NULL) {
+            printf(", ");
         }
-        t = t->next;
+
+        key = key->next;
     }
     printf("]\n");
 }
 
-/* --- hash functions -------------------------------------------------- */
+void print_state_list(StateList *sl)
+{
+    int i;
+
+    printf("[");
+    for (i = 0; i < sl->len; i++) {
+        printf("%d", sl->states[i]);
+        if (i != sl->len - 1) printf(", ");
+    }
+    printf("]\n");
+}
+
+/* --- hash and equality functions ----------------------------------------------- */
 
 #define RSHIFT 5
 #define LSHIFT (sizeof(unsigned int) * 8 - RSHIFT)
@@ -378,14 +651,20 @@ gboolean state_list_eq(gconstpointer a, gconstpointer b)
 guint collec_state_list_hash(gconstpointer key)
 {
     guint hash;
-    CollectionStateList *csl;
-    int i, j;
+    gpointer val;
+    HashSet *set;
+    HashSetIter iter;
+    StateList *sl;
+    int i;
 
-    csl = (CollectionStateList*) key;
+    set = ((CollectionStateList*) key)->state_sets;
     hash = 0;
-    for (i = 0; i < csl->len; i++) {
-        for (j = 0; j < csl->state_lists[i]->len; j++) {
-            hash += csl->state_lists[i]->states[j];
+
+    hash_set_iter_init(&iter, set);
+    while (hash_set_iter_next(&iter, &val)) {
+        sl = (StateList*) val;
+        for (i = 0; i < sl->len; i++) {
+            hash += sl->states[i];
             hash = (hash << RSHIFT) | ((hash >> LSHIFT) & MASK);
         }
     }
@@ -395,16 +674,24 @@ guint collec_state_list_hash(gconstpointer key)
 
 gboolean collec_state_list_eq(gconstpointer a, gconstpointer b)
 {
-    CollectionStateList *csl1, *csl2;
-    int i;
+    HashSet *set1, *set2;
+    HashSetIter iter;
+    gpointer val;
+    guint size1, size2;
 
-    csl1 = (CollectionStateList*) a;
-    csl2 = (CollectionStateList*) b;
+    set1 = ((CollectionStateList*) a)->state_sets;
+    size1 = hash_set_size(set1);
 
-    if (csl1->len != csl2->len) return FALSE;
+    set2 = ((CollectionStateList*) b)->state_sets;
+    size2 = hash_set_size(set2);
 
-    for (i = 0; i < csl1->len; i++) {
-        if (!state_list_equals(csl1->state_lists[i], csl2->state_lists[i])) return FALSE;
+    if (size1 != size2) return FALSE;
+
+    hash_set_iter_init(&iter,  set1);
+    while (hash_set_iter_next(&iter, &val)) {
+        if (!hash_set_contains(set2, val)) {
+            return FALSE;
+        }
     }
 
     return TRUE;
@@ -450,3 +737,25 @@ gboolean transition_label_eq(gconstpointer a, gconstpointer b)
     return tl1->info == tl2->info;
 }
 
+guint state_and_tl_hash(gconstpointer key)
+{
+    StateAndTransitionLabel *k;
+    guint hash;
+
+    k = (StateAndTransitionLabel*) key;
+
+    hash = k->state;
+    return (hash << RSHIFT) | ((hash >> LSHIFT) & MASK);
+}
+
+gboolean state_and_tl_eq(gconstpointer a, gconstpointer b)
+{
+    StateAndTransitionLabel *l, *r;
+
+    l = (StateAndTransitionLabel*) a;
+    r = (StateAndTransitionLabel*) b;
+
+    if (l->state != r->state) return FALSE;
+
+    return transition_label_eq(l->tl, r->tl);
+}
