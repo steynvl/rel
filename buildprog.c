@@ -38,7 +38,21 @@ static void make_char(Inst **pc, int ch)
 
 static void make_star(Inst **pc, int ch)
 {
+    Inst *p1;
 
+    (*pc)->opcode = Split;
+    p1 = (*pc)++;
+
+    p1->x = *pc;
+    (*pc)->opcode = Char;
+    (*pc)->c = ch;
+    (*pc)++;
+
+    (*pc)->opcode = Jmp;
+    (*pc)->x = p1;
+    (*pc)++;
+
+    p1->y = *pc;
 }
 
 static void build(Prog *prog, HashSet *final_states,
@@ -74,19 +88,21 @@ static void build(Prog *prog, HashSet *final_states,
 
         if (is_final) assert(GPOINTER_TO_INT(move_key) == s->state);
 
-        /* TODO make_star */
-        make_char(&build_state->pc, s->tl->info);
-
-        value = g_hash_table_lookup(state_map, key);
-        if (value == nil) {
-            build(prog, final_states, state_map, moves, key);
-            assert(g_hash_table_lookup(state_map, key) != nil);
+        if (GPOINTER_TO_INT(move_key) == s->state) {
+            make_star(&build_state->pc, s->tl->info);
         } else {
-            p1 = build_state->pc++;
-            p1->opcode = Jmp;
-            p1->x = prog->start + GPOINTER_TO_INT(value);
-        }
+            make_char(&build_state->pc, s->tl->info);
 
+            value = g_hash_table_lookup(state_map, key);
+            if (value == nil) {
+                build(prog, final_states, state_map, moves, key);
+                assert(g_hash_table_lookup(state_map, key) != nil);
+            } else if (build_state->pc - prog->start != GPOINTER_TO_INT(value) + 1) {
+                p1 = build_state->pc++;
+                p1->opcode = Jmp;
+                p1->x = prog->start + GPOINTER_TO_INT(value);
+            }
+        }
     } else {
         instructions = g_ptr_array_new();
         for (i = 0; i < ptr_arr->len - 1; i++) {
@@ -179,6 +195,5 @@ Prog *build_prog(GHashTable *moves, HashSet *final_states)
     for (i = 0; i < prog->len; i++)
         prog->start[i].gen = 0;
 
-    printprog(prog);
     return prog;
 }
