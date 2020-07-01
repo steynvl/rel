@@ -12,19 +12,19 @@ find_package(PkgConfig REQUIRED)
 bison_target(parser src/parse.y ${CMAKE_CURRENT_BINARY_DIR}/parse.c
              DEFINES_FILE ${CMAKE_CURRENT_BINARY_DIR}/parse.h)
 
-set(SOURCE
+set(SOURCE_FILES
     src/hashset.c src/buildprog.c src/sub.c
     src/pike.c src/utils.c src/transition.c
     src/compile.c src/main.c
 )
 
-set(HEADERS
+set(HEADER_FILES
     src/regex.h src/hashset.h
     src/utils.h src/transition.h
 )
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
-add_executable(rel ${BISON_parser_OUTPUTS} ${SOURCE} ${HEADERS})
+add_executable(rel ${BISON_parser_OUTPUTS} ${SOURCE_FILES} ${HEADER_FILES})
 
 pkg_check_modules(deps REQUIRED IMPORTED_TARGET glib-2.0)
 target_link_libraries(rel PkgConfig::deps)

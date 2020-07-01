@@ -98,7 +98,7 @@ construct_product(ProgWithLook *pwl)
     AndState as;
     TransitionTable *tt_from, *tt_to;
     /* final and initial states of the product automaton */
-    StateList*fs, *is;
+    StateList *fs, *is;
     int *offsets;
     int **states;
     int i, num_states, cum;
