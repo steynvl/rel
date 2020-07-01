@@ -1,7 +1,3 @@
-#ifndef RE1_HASHSET_H
-#define RE1_HASHSET_H
-
-#include "regexp.h"
 #include <glib.h>
 
 typedef struct HashSet HashSet;
@@ -25,4 +21,3 @@ gboolean hash_set_iter_next(HashSetIter *iter, gpointer *key);
 GQueue* hash_set_to_g_queue(HashSet *hs);
 GPtrArray* hash_set_to_g_ptr_array(HashSet *hs);
 
-#endif

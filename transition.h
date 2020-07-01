@@ -1,5 +1,5 @@
 #include <glib.h>
-#include "regexp.h"
+#include "regex.h"
 #include "hashset.h"
 
 typedef struct Transition Transition;

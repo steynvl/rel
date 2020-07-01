@@ -1,6 +1,5 @@
 #include <assert.h>
 #include "transition.h"
-#include "hashset.h"
 
 typedef struct BuildState BuildState;
 

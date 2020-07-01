@@ -1,5 +1,7 @@
 #include "hashset.h"
 
+void* umal(int);
+
 HashSet* hash_set_new(GHashFunc hash_func, GEqualFunc key_equal_func)
 {
     HashSet *hs;

@@ -1,6 +1,5 @@
 #include <assert.h>
 #include "transition.h"
-#include "hashset.h"
 
 Prog *build_prog(GHashTable *moves, HashSet *final_states);
 
