@@ -46,3 +46,4 @@ void print_states(int **states, int r, int c, int *offsets)
         printf(")\n");
     }
 }
+

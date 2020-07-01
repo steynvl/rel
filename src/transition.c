@@ -3,8 +3,6 @@
 
 Prog *build_prog(GHashTable *moves, HashSet *final_states);
 
-#define DEBUG 1
-
 void add_sl_transition(TransitionTable *tt, StateList *from,
                        StateList *to, TransitionLabel *label)
 {

@@ -59,4 +59,8 @@ re1.creator.user
 y.output
 y.tab.c
 
-re
+rel
+
+bin/
+
+CMakeLists.txt.user

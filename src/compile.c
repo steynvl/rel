@@ -29,8 +29,6 @@ static void product_transitions(TransitionTable*, TransitionTable*, int**,
 static void emit(Regexp*, ProgWithLook*);
 static void populate_states(ProgWithLook*, int**, int);
 
-#define DEBUG 1
-
 Prog*
 compile(RegexpWithLook *rwl)
 {

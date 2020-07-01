@@ -2,16 +2,52 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-%{
-#include "regex.h"
+%code requires {
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdarg.h>
+#include <string.h>
+
+typedef struct Regexp Regexp;
+typedef struct RegexpWithLook RegexpWithLook;
+
+struct Regexp
+{
+    int type;
+    int n;
+    int ch;
+    Regexp *left;
+    Regexp *right;
+};
+
+struct RegexpWithLook
+{
+    int k;
+    Regexp *regexp;
+};
+
+enum
+{
+    Alt = 1,
+    Cat,
+    Lit,
+    Dot,
+    Paren,
+    Look,
+    Quest,
+    Star,
+    Plus,
+};
+Regexp *reg(int type, Regexp *left, Regexp *right);
+RegexpWithLook *regWithLook(Regexp *reg, int k);
+#define nil ((void*)0)
 
 static int yylex(void);
 static void yyerror(char*);
 static Regexp *parsed_regexp;
 static int nparen;
 static int nlookaheads;
-
-%}
+}
 
 %union {
     Regexp *re;
@@ -181,12 +217,6 @@ parse(char *s)
 }
 
 void*
-mal(int n)
-{
-    return imal(n, 0);
-}
-
-void*
 imal(int n, int val)
 {
     void *v;
@@ -196,6 +226,12 @@ imal(int n, int val)
         fatal("out of memory");
     memset(v, val, n);
     return v;
+}
+
+void*
+mal(int n)
+{
+    return imal(n, 0);
 }
 
 void*
