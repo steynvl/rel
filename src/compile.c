@@ -21,6 +21,9 @@ static AndState* and_states;
 /* alphabet of the regex, populated in emit */
 static Alphabet* alphabet;
 
+/* map state to capture sub */
+static GHashTable *save_states;
+
 /* --- function prototypes -------------------------------------------------- */
 static void count(Regexp*, int*, int);
 static Prog* construct_product(ProgWithLook*);
@@ -65,6 +68,7 @@ compile(RegexpWithLook *rwl)
 
     alphabet = nil;
     add_to_alphabet(&alphabet, Epsilon, -1);
+    save_states = g_hash_table_new(g_direct_hash, g_direct_equal);
 
     emit(r, pwl);
 
@@ -84,7 +88,7 @@ compile(RegexpWithLook *rwl)
         pwl[i].prog->len += 1;
 
 #if DEBUG
-        printf("PROGRAM %d\n", i);
+        printf("Program %d\n", i);
         printprog(pwl[i].prog);
 #endif
     }
@@ -139,11 +143,14 @@ construct_product(ProgWithLook *pwl)
     tt_to = transition_table_new();
     product_transitions(tt_from, tt_to, states, num_states, offsets, pwl, fs);
 
+    print_state_list(is);
+    print_state_list(fs);
+
 #if DEBUG
     print_dot(tt_from, is, fs);
 #endif
 
-    return convert_to_prog(tt_from, tt_to, is, fs);
+    return convert_to_prog(tt_from, tt_to, is, fs, save_states);
 }
 
 static int
@@ -191,6 +198,13 @@ product_transitions(TransitionTable *tt_from, TransitionTable *tt_to,
                 for (i = pwl->len - 1; i >= 0; i--) {
                     q = t1[i] + offsets[i];
                     q_prime = t2[i] + offsets[i];
+
+                    /* submatch save state */
+                    if (i == 0 && q_prime == q + 1
+                            && alph_sym->label == Epsilon
+                            && g_hash_table_contains(save_states, GINT_TO_POINTER(q))) {
+                        continue;
+                    }
 
                     /* α = ε and q_i' = q_i */
                     if (alph_sym->label == Epsilon && q == q_prime) {
@@ -328,8 +342,7 @@ count(Regexp *r, int *counts, int index)
         counts[index] += 1;
         return;
     case Paren:
-//        counts[index] += 2;
-
+        counts[index] += 2;
         count(r->left, counts, index);
         return;
     case Look:
@@ -354,6 +367,7 @@ static void
 emit(Regexp *r, ProgWithLook *pwl)
 {
     Inst *p1, *p2, *t;
+    int idx, n;
 
     switch (r->type) {
     default:
@@ -400,14 +414,19 @@ emit(Regexp *r, ProgWithLook *pwl)
         break;
 
     case Paren:
-//        pc->opcode = Save;
-//        pc->n = 2*r->n;
-//        pc++;
-//        emit(r->left, pwl);
-//        pc->opcode = Save;
-//        pc->n = 2*r->n + 1;
-//        pc++;
+        idx = pc - pwl[cb].prog->start;
+        n = 2*r->n;
+        assert(g_hash_table_insert(save_states, GINT_TO_POINTER(idx), GINT_TO_POINTER(n)));
+        pc->opcode = Save;
+        pc->n = n;
+        pc++;
         emit(r->left, pwl);
+        idx = pc - pwl[cb].prog->start;
+        n = 2*r->n + 1;
+        assert(g_hash_table_insert(save_states, GINT_TO_POINTER(idx), GINT_TO_POINTER(n)));
+        pc->opcode = Save;
+        pc->n = n;
+        pc++;
         break;
 
     case Quest:
@@ -489,4 +508,3 @@ printprog(Prog *p)
         }
     }
 }
-

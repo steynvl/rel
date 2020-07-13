@@ -9,7 +9,7 @@ ProgWithLook* create_prog_with_look(int num_progs, int *sizes)
     pwl = umal(num_progs * sizeof(ProgWithLook));
     pwl->len = num_progs;
     for (i = 0; i < num_progs; i++) {
-        p = umal(sizeof *p + sizes[i]*sizeof p->start[0]);
+        p = imal(sizeof *p + sizes[i]*sizeof p->start[0], 1);
         p->start = (Inst*)(p+1);
         p->len = sizes[i] - 1;
         pwl[i].prog = p;

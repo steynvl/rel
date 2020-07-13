@@ -2,8 +2,6 @@
 #include "regex.h"
 #include "hashset.h"
 
-typedef struct Transition Transition;
-typedef struct TransitionFrag TransitionFrag;
 typedef struct Alphabet Alphabet;
 typedef struct StateList StateList;
 typedef struct CollectionStateList CollectionStateList;
@@ -14,7 +12,6 @@ typedef struct StateAndTransitionLabel StateAndTransitionLabel;
 enum       /* TransitionLabel.label */
 {
     Epsilon = 1,
-    SubInfo,
     Input
 };
 
@@ -60,7 +57,7 @@ int path_exists(int, int, Prog*, TransitionLabel*, int);
 
 void add_sl_transition(TransitionTable*, StateList*, StateList*, TransitionLabel*);
 
-Prog* convert_to_prog(TransitionTable*, TransitionTable*, StateList*, StateList*);
+Prog* convert_to_prog(TransitionTable*, TransitionTable*, StateList*, StateList*, GHashTable*);
 
 TransitionLabel* make_epsilon_tl();
 TransitionLabel* make_char_tl(int);

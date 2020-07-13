@@ -35,6 +35,13 @@ static void make_char(Inst **pc, int ch)
     (*pc)++;
 }
 
+static void make_save(Inst **pc, int sub)
+{
+    (*pc)->opcode = Save;
+    (*pc)->n = sub;
+    (*pc)++;
+}
+
 static void make_star(Inst **pc, int ch)
 {
     Inst *p1;
@@ -78,6 +85,10 @@ static void build(Prog *prog, HashSet *final_states,
         return;
     }
 
+    if (is_final) {
+        // TODO split char a and match
+    }
+
     assert(value != nil);
     ptr_arr = hash_set_to_g_ptr_array(value);
 
@@ -85,12 +96,16 @@ static void build(Prog *prog, HashSet *final_states,
         s = g_ptr_array_index(ptr_arr, 0);
         key = GINT_TO_POINTER(s->state);
 
-        if (is_final) assert(GPOINTER_TO_INT(move_key) == s->state);
+        // if (is_final) assert(GPOINTER_TO_INT(move_key) == s->state);
 
         if (GPOINTER_TO_INT(move_key) == s->state) {
             make_star(&build_state->pc, s->tl->info);
         } else {
-            make_char(&build_state->pc, s->tl->info);
+            if (s->tl->label == Input) {
+                make_char(&build_state->pc, s->tl->info);
+            } else if (s->tl->label == Epsilon) {
+                make_save(&build_state->pc, s->tl->info);
+            }
 
             value = g_hash_table_lookup(state_map, key);
             if (value == nil) {
@@ -113,7 +128,12 @@ static void build(Prog *prog, HashSet *final_states,
         }
 
         s = g_ptr_array_index(ptr_arr, 0);
-        make_char(&build_state->pc, s->tl->info);
+        if (s->tl->label == Input) {
+            make_char(&build_state->pc, s->tl->info);
+        } else if (s->tl->label == Epsilon) {
+            make_save(&build_state->pc, s->tl->info);
+        }
+
         key = GINT_TO_POINTER(s->state);
 
         value = g_hash_table_lookup(state_map, key);
@@ -137,7 +157,11 @@ static void build(Prog *prog, HashSet *final_states,
                 value = g_hash_table_lookup(state_map, key);
                 assert(value != nil);
             }
-            make_char(&build_state->pc, s->tl->info);
+            if (s->tl->label == Input) {
+                make_char(&build_state->pc, s->tl->info);
+            } else if (s->tl->label == Epsilon) {
+                make_save(&build_state->pc, s->tl->info);
+            }
             p2 = build_state->pc++;
             p2->opcode = Jmp;
             p2->x = prog->start + GPOINTER_TO_INT(value);
@@ -145,8 +169,10 @@ static void build(Prog *prog, HashSet *final_states,
         }
     }
 
-    if (is_final)
+    if (is_final) {
+        printf("make_match 2\n");
         make_match(&build_state->pc);
+    }
 }
 
 Prog *build_prog(GHashTable *moves, HashSet *final_states)
@@ -160,7 +186,7 @@ Prog *build_prog(GHashTable *moves, HashSet *final_states)
     gpointer key, val;
     int i;
 
-    printf("--- IN BUILDPROG ---\n");
+#if DEBUG
     printf("final_states: ");
     hash_set_iter_init(&iter, final_states);
     while (hash_set_iter_next(&iter, &val)) {
@@ -179,6 +205,7 @@ Prog *build_prog(GHashTable *moves, HashSet *final_states)
         }
         printf("]\n");
     }
+#endif
 
     assert(g_hash_table_size(moves) > 0);
 
@@ -188,9 +215,12 @@ Prog *build_prog(GHashTable *moves, HashSet *final_states)
     build_state->pc = prog->start;
 
     build(prog, final_states, state_map, moves, GINT_TO_POINTER(0));
-
     prog->len = build_state->pc - prog->start;
+
+#if DEBUG
     printf("prog->len = %d\n", prog->len);
+#endif
+
     for (i = 0; i < prog->len; i++)
         prog->start[i].gen = 0;
 

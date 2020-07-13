@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <assert.h>
+#include <glib.h>
 
 #define nil ((void*)0)
 #define nelem(x) (sizeof(x)/sizeof((x)[0]))
@@ -20,6 +21,7 @@ typedef struct ProgWithLook ProgWithLook;
 typedef struct Inst Inst;
 
 typedef struct AndState AndState;
+typedef struct SaveState SaveState;
 
 struct RegexpWithLook
 {

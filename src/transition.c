@@ -2,6 +2,7 @@
 #include "transition.h"
 
 Prog *build_prog(GHashTable *moves, HashSet *final_states);
+gboolean contains_save_state(HashSet*, int);
 
 void add_sl_transition(TransitionTable *tt, StateList *from,
                        StateList *to, TransitionLabel *label)
@@ -115,7 +116,8 @@ get_alive_states(TransitionTable *tt_from, TransitionTable *tt_to,
 }
 
 static CollectionStateList*
-eps_closure(TransitionTable *tt, StateList *curr_state, HashSet *alive_states)
+eps_closure(TransitionTable *tt, StateList *curr_state,
+            HashSet *alive_states, GHashTable *save_states)
 {
     CollectionStateList *ret;
     HashSet *reached;
@@ -135,6 +137,9 @@ eps_closure(TransitionTable *tt, StateList *curr_state, HashSet *alive_states)
 
     while (!g_queue_is_empty(to_visit)) {
         sl = g_queue_pop_head(to_visit);
+
+        if (g_hash_table_contains(save_states, GINT_TO_POINTER(sl->states[0])))
+            continue;
 
         value = g_hash_table_lookup(tt->ht, sl);
         if (value == NULL)
@@ -167,7 +172,9 @@ eps_closure(TransitionTable *tt, StateList *curr_state, HashSet *alive_states)
 }
 
 static CollectionStateList*
-collec_sl_eps_closure(TransitionTable *tt, HashSet *states, HashSet *alive_states)
+collec_sl_eps_closure(TransitionTable *tt, HashSet *states,
+                      HashSet *alive_states,
+                      GHashTable *save_states)
 {
     CollectionStateList *ret;
     HashSetIter iter;
@@ -180,7 +187,9 @@ collec_sl_eps_closure(TransitionTable *tt, HashSet *states, HashSet *alive_state
     hash_set_iter_init(&iter, states);
     while (hash_set_iter_next(&iter, &val)) {
         sl = (StateList*) val;
-        hash_set_add_all(ret->state_sets, eps_closure(tt, sl, alive_states)->state_sets);
+        print_state_list(sl);
+        hash_set_add_all(ret->state_sets,
+                         eps_closure(tt, sl, alive_states, save_states)->state_sets);
     }
 
     return ret;
@@ -210,19 +219,31 @@ static gboolean is_final_configuration(HashSet *states, StateList *final_states)
     return FALSE;
 }
 
+static gboolean is_save_state(GHashTable *save_states, StateList *curr_state)
+{
+    return g_hash_table_contains(save_states, GINT_TO_POINTER(curr_state->states[0]));
+}
+
+static gboolean is_save_move(StateList *sl1, StateList *sl2)
+{
+    return sl1->states[0] == sl2->states[0] + 1;
+}
+
 Prog* convert_to_prog(TransitionTable *tt_from, TransitionTable* tt_to,
-                      StateList *is, StateList *fs)
+                      StateList *is, StateList *fs, GHashTable *save_states)
 {
     GHashTable *reached_states, *moves;
     GHashTableIter iter;
     GQueue *to_visit;
     GSList *to_states;
-    gpointer key, value, lookup, hs_val;
+    gpointer key, value, lookup, hs_val, val;
     HashSetIter hs_iter;
     CollectionStateList *reachable, *curr_state, *next_state;
     HashSet *alive_states, *hs, *final_states;
+    StateList *sl;
     TransitionLabel *tl;
     int curr_state_id, next_state_id, index;
+    gboolean contain;
 
     alive_states = get_alive_states(tt_from, tt_to, is, fs);
 
@@ -233,7 +254,7 @@ Prog* convert_to_prog(TransitionTable *tt_from, TransitionTable* tt_to,
 
     reached_states = g_hash_table_new(collec_state_list_hash, collec_state_list_eq);
     to_visit = g_queue_new();
-    reachable = eps_closure(tt_from, is, alive_states);
+    reachable = eps_closure(tt_from, is, alive_states, save_states);
     if (reachable != nil) {
         g_hash_table_insert(reached_states, reachable, 0);
         g_queue_push_head(to_visit, reachable);
@@ -262,21 +283,35 @@ Prog* convert_to_prog(TransitionTable *tt_from, TransitionTable* tt_to,
             if (value == nil)
                 continue;
 
+            sl = (StateList*) hs_val;
             g_hash_table_iter_init(&iter, value);
             while (g_hash_table_iter_next(&iter, &key, &value)) {
                 tl = (TransitionLabel*) key;
-
-                if (tl->label == Epsilon) continue;
-
                 to_states = (GSList*) value;
+
+                if (tl->label == Epsilon && !is_save_state(save_states, sl)) {
+                    continue;
+                }
+
                 while (to_states != nil) {
-                    if (hash_set_contains(alive_states, to_states->data)) {
-#if DEBUG
-                        printf("Transition: %c -> state: ", tl->info);
-                        print_state_list(to_states->data);
-#endif
-                        add_tl_transition(temp_ht, tl, to_states->data);
+                    if (tl->label == Epsilon && state_list_equals(sl, to_states->data)) {
+                        to_states = to_states->next;
+                        continue;
                     }
+
+                    if (hash_set_contains(alive_states, to_states->data)) {
+                        contain = hash_set_contains(curr_state->state_sets, to_states->data);
+                        if (tl->label == Input || (tl->label == Epsilon && !contain)) {
+                            if (tl->label == Epsilon) {
+                                gpointer gp = GINT_TO_POINTER(sl->states[0]);
+                                assert(g_hash_table_contains(save_states, gp));
+                                val = g_hash_table_lookup(save_states, gp);
+                                tl->info = GPOINTER_TO_INT(val);
+                            }
+                            add_tl_transition(temp_ht, tl, to_states->data);
+                        }
+                    }
+
                     to_states = to_states->next;
                 }
             }
@@ -285,12 +320,15 @@ Prog* convert_to_prog(TransitionTable *tt_from, TransitionTable* tt_to,
         g_hash_table_iter_init(&iter, temp_ht);
         while (g_hash_table_iter_next(&iter, &key, &value)) {
             tl = (TransitionLabel*) key;
-            assert(tl->label == Input);
-
             hs = (HashSet*) value;
-            next_state = collec_sl_eps_closure(tt_from, hs, alive_states);
+            next_state = collec_sl_eps_closure(tt_from, hs, alive_states, save_states);
 #if DEBUG
-            printf("NEXT STATE [%c]:\n", tl->info);
+            printf("NEXT STATE [");
+            if (tl->label == Epsilon)
+                printf("eps");
+            else if (tl->label == Input)
+                printf("%c", tl->info);
+            printf("]:\n");
             print_sl_hash_set(next_state->state_sets);
 #endif
 
@@ -340,15 +378,15 @@ Prog* convert_to_prog(TransitionTable *tt_from, TransitionTable* tt_to,
     return build_prog(moves, final_states);
 }
 
-int path_exists(int from, int to, Prog *prog,
-                TransitionLabel *alph_sym, int final_state)
+gboolean path_exists(int from, int to, Prog *prog,
+                     TransitionLabel *alph_sym, int final_state)
 {
     Inst *inst;
     int to1, to2;
 
     inst = &prog->start[from];
     if (inst == nil)
-        return 0;
+        return FALSE;
 
     switch (alph_sym->label) {
     default:
@@ -364,12 +402,10 @@ int path_exists(int from, int to, Prog *prog,
             to2 = (inst->y - prog->start);
             return to1 == to || to2 == to;
         }
-        return 0;
-    case SubInfo:
-        fatal("TODO SubInfo");
+        return FALSE;
     case Input:
         if (from == to && from == final_state) {
-            return 1;
+            return TRUE;
         } else {
             return to == from + 1 && inst->opcode == Char && inst->c == alph_sym->info;
         }
@@ -377,7 +413,7 @@ int path_exists(int from, int to, Prog *prog,
 //        return from == to && from == final_state;
     }
 
-    return 0;
+    return FALSE;
 }
 
 
@@ -492,7 +528,7 @@ void add_to_alphabet(Alphabet **alph, int label, int info)
 /* --- printing functions ------------------------------------------------------ */
 
 void print_dot(TransitionTable *tt,
-               StateList* initial_states,
+               StateList *initial_states,
                StateList *final_states)
 {
     GHashTableIter iter1, iter2;
@@ -526,6 +562,11 @@ void print_dot(TransitionTable *tt,
         key = key->next;
     }
 
+    if (!g_hash_table_contains(tt->ht, final_states)) {
+        state = merge_state_list(final_states);
+        printf("%s[label=%s,peripheries=2]\n", state, state);
+    }
+
     initial = merge_state_list(initial_states);
     printf("XX%s -> %s\n", initial, initial);
 
@@ -548,9 +589,6 @@ void print_dot(TransitionTable *tt,
                     fatal("bad label in print_dot");
                 case Epsilon:
                     printf("&#949;");
-                    break;
-                case SubInfo:
-                    printf("%d", tl->info);
                     break;
                 case Input:
                     printf("%c", tl->info);
@@ -585,9 +623,6 @@ void print_alphabet(Alphabet *alph)
             fatal("bad label in print_alphabet");
         case Epsilon:
             printf("ε");
-            break;
-        case SubInfo:
-            printf("SUB(%d)", tl->info);
             break;
         case Input:
             printf("%c", tl->info);
@@ -709,9 +744,6 @@ guint transition_label_hash(gconstpointer key)
         break;
     case Epsilon:
         hash = 0;
-        break;
-    case SubInfo:
-        hash = tl->info;
         break;
     }
 
