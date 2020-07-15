@@ -7,6 +7,22 @@ typedef struct BuildState BuildState;
 
 static BuildState *build_state;
 
+void make_lazy_match_anything(Inst **pc)
+{
+    Inst *p1, *p2;
+
+    (*pc)->opcode = Split;
+    p1 = (*pc)++;
+    p1->y = *pc;
+    (*pc)->opcode = Any;
+    p2 = (*pc)++;
+    p2->x = *pc;
+    (*pc)->opcode = Jmp;
+    (*pc)->x = p1;
+    (*pc)++;
+    p1->x = *pc;
+}
+
 static Prog* create_prog()
 {
     Prog *prog;
@@ -178,6 +194,7 @@ static void build(Prog *prog, HashSet *final_states,
 Prog *build_prog(GHashTable *moves, HashSet *final_states)
 {
     Prog *prog;
+    Inst *pc;
     HashSet *hs;
     HashSetIter iter;
     StateAndTransitionLabel *s;
@@ -211,8 +228,11 @@ Prog *build_prog(GHashTable *moves, HashSet *final_states)
 
     state_map = g_hash_table_new(g_direct_hash, g_direct_equal);
     prog = create_prog();
+    pc = prog->start;
+    make_lazy_match_anything(&pc);
+
     build_state = umal(sizeof(BuildState));
-    build_state->pc = prog->start;
+    build_state->pc = pc;
 
     build(prog, final_states, state_map, moves, GINT_TO_POINTER(0));
     prog->len = build_state->pc - prog->start;

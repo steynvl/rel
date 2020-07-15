@@ -32,6 +32,9 @@ static void product_transitions(TransitionTable*, TransitionTable*, int**,
 static void emit(Regexp*, ProgWithLook*);
 static void populate_states(ProgWithLook*, int**, int);
 
+/* implemented in buildprog.c */
+void make_lazy_match_anything(Inst **);
+
 Prog*
 compile(RegexpWithLook *rwl)
 {
@@ -54,6 +57,9 @@ compile(RegexpWithLook *rwl)
     sl = 0;
     count(r, n, 0);
 
+    if (num_progs == 1)
+        n[0] += 3;
+
 #if DEBUG
     for (i = 0; i < num_progs; i++) {
         printf("n[%d] = %d\n", i, n[i]);
@@ -69,6 +75,14 @@ compile(RegexpWithLook *rwl)
     alphabet = nil;
     add_to_alphabet(&alphabet, Epsilon, -1);
     save_states = g_hash_table_new(g_direct_hash, g_direct_equal);
+
+    /* if the regex has no lookaheads, then we add
+       prepend (.*?) to the program to skip the prefix
+       in the text before the match starts. If the regex
+       contains lookaheads then this step will be performed
+       in buildprog. */
+    if (num_progs == 1)
+        make_lazy_match_anything(&pc);
 
     emit(r, pwl);
 
