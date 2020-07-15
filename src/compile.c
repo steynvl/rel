@@ -33,7 +33,7 @@ static void emit(Regexp*, ProgWithLook*);
 static void populate_states(ProgWithLook*, int**, int);
 
 /* implemented in buildprog.c */
-void make_lazy_match_anything(Inst **);
+void make_lazy_match_anything(Inst**);
 
 Prog*
 compile(RegexpWithLook *rwl)

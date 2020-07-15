@@ -1,0 +1,211 @@
+// This file contains test cases for regular expressions.
+// A test case consists of three lines:
+// The first line is a pattern used in the test
+// The second line is the input to search for the pattern in
+// The third line is a concatentation of the match, the number of groups,
+//     and the contents of the first four subexpressions.
+// Empty lines and lines beginning with comment slashes are ignored.
+
+// Test unsetting of backed off groups
+(a)?a
+a
+true a 1
+
+(aa(bb)?)+
+aabbaa
+true aabbaa 2 aa bb
+
+((a|b)?b)+
+b
+true b 2 b
+
+(aaa)?aaa
+aaa
+true aaa 1
+
+(a(b)?)+
+aba
+true aba 2 a b
+
+(a(b(c)?)?)?abc
+abc
+true abc 3
+
+(a(b(c))).*
+abc
+true abc 3 abc bc c
+
+// Simple alternation
+a|b
+a
+true a 0
+
+a|b
+z
+false 0
+
+a|b
+b
+true b 0
+
+a|b|cd
+cd
+true cd 0
+
+a|ad
+ad
+true a 0
+
+z(a|ac)b
+zacb
+true zacb 1 ac
+
+// Test the dot metacharacter
+a.c.+
+a#c%&
+true a#c%& 0
+
+ab.
+abz
+true abz 0
+
+// Greedy ? metacharacter
+a?b
+aaaab
+true ab 0
+
+a?b
+b
+true b 0
+
+a?b
+aaaccc
+false 0
+
+.?b
+aaaab
+true ab 0
+
+// Reluctant ? metacharacter
+a??b
+aaaab
+true ab 0
+
+a??b
+b
+true b 0
+
+a??b
+aaaccc
+false 0
+
+.??b
+aaaab
+true ab 0
+
+// Greedy + metacharacter
+a+b
+aaaab
+true aaaab 0
+
+a+b
+b
+false 0
+
+a+b
+aaaccc
+false 0
+
+.+b
+aaaab
+true aaaab 0
+
+// Reluctant + metacharacter
+a+?b
+aaaab
+true aaaab 0
+
+a+?b
+b
+false 0
+
+a+?b
+aaaccc
+false 0
+
+.+?b
+aaaab
+true aaaab 0
+
+// Zero width Positive lookahead
+abc(?=d)
+zzzabcd
+true abc 0
+
+abc(?=d)
+zzzabced
+false 0
+
+// Nondeterministic group
+(a+b)+
+ababab
+true ababab 1 ab
+
+(a|b)+
+ccccd
+false 1
+
+// Deterministic group
+(ab)+
+ababab
+true ababab 1 ab
+
+(ab)+
+accccd
+false 1
+
+(ab)*
+ababab
+true ababab 1 ab
+
+(ab)(cd*)
+zzzabczzz
+true abc 2 ab c
+
+abc(d)*abc
+abcdddddabc
+true abcdddddabc 1 d
+
+// Greedy * metacharacter
+a*b
+aaaab
+true aaaab 0
+
+a*b
+b
+true b 0
+
+a*b
+aaaccc
+false 0
+
+.*b
+aaaab
+true aaaab 0
+
+// Reluctant * metacharacter
+a*?b
+aaaab
+true aaaab 0
+
+a*?b
+b
+true b 0
+
+a*?b
+aaaccc
+false 0
+
+.*?b
+aaaab
+true aaaab 0
