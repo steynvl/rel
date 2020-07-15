@@ -198,8 +198,6 @@ yyerror(char *s)
 RegexpWithLook*
 parse(char *s)
 {
-    Regexp *r, *dotstar;
-
     input = s;
     parsed_regexp = nil;
     nparen = 0;
