@@ -28,7 +28,7 @@ static GHashTable *save_states;
 static void count(Regexp*, int*, int);
 static Prog* construct_product(ProgWithLook*);
 static void product_transitions(TransitionTable*, TransitionTable*, int**,
-                                int, int*, ProgWithLook*, StateList*);
+                                int, int*, ProgWithLook*, FinalStates*);
 static void emit(Regexp*, ProgWithLook*);
 static void populate_states(ProgWithLook*, int**, int);
 
@@ -116,7 +116,8 @@ construct_product(ProgWithLook *pwl)
     AndState as;
     TransitionTable *tt_from, *tt_to;
     /* final and initial states of the product automaton */
-    StateList *fs, *is;
+    StateList *fs1, *fs2, *is;
+    FinalStates *fs;
     int *offsets;
     int **states;
     int i, num_states, cum;
@@ -144,21 +145,27 @@ construct_product(ProgWithLook *pwl)
     print_states(states, num_states, pwl->len, offsets);
 #endif
 
-    fs = create_state_list(pwl->len);
+    fs1 = create_state_list(pwl->len);
+    fs2 = create_state_list(pwl->len);
     is = create_state_list(pwl->len);
     for (i = 0; i < pwl->len; i++) {
-        fs->states[i] = i > 0 ? pwl[i].prog->len - 2 : pwl[i].prog->len - 1;
-        fs->states[i] += offsets[i];
+        fs1->states[i] = i > 0 ? pwl[i].prog->len - 2 : pwl[i].prog->len - 1;
+        fs1->states[i] += offsets[i];
+        fs2->states[i] = i > 0 ? pwl[i].prog->len - 1 : pwl[i].prog->len - 1;
+        fs2->states[i] += offsets[i];
 
         is->states[i] = i > 0 ? offsets[i] + pwl[i].prog->len - 1 : offsets[i];
     }
+    fs = create_final_states();
+    hash_set_add(fs->states, fs1);
+    hash_set_add(fs->states, fs2);
 
     tt_from = transition_table_new();
     tt_to = transition_table_new();
     product_transitions(tt_from, tt_to, states, num_states, offsets, pwl, fs);
 
     print_state_list(is);
-    print_state_list(fs);
+    // TODO print_final_states(fs)
 
 #if DEBUG
     print_dot(tt_from, is, fs);
@@ -183,7 +190,7 @@ contains_and(int original_and, int *states, int *offsets, int len)
 static void
 product_transitions(TransitionTable *tt_from, TransitionTable *tt_to,
                     int **states, int num_states, int *offsets,
-                    ProgWithLook *pwl, StateList *final_states)
+                    ProgWithLook *pwl, FinalStates *final_states)
 {
     TransitionLabel *tl, *alph_sym;
     GHashTableIter iter;
@@ -212,6 +219,8 @@ product_transitions(TransitionTable *tt_from, TransitionTable *tt_to,
                 for (i = pwl->len - 1; i >= 0; i--) {
                     q = t1[i] + offsets[i];
                     q_prime = t2[i] + offsets[i];
+                    is_fresh1 = t1[i] == pwl[i].prog->len - 1;
+                    is_fresh2 = t2[i] == pwl[i].prog->len - 1;
 
                     /* submatch save state */
                     if (i == 0 && q_prime == q + 1
@@ -221,7 +230,7 @@ product_transitions(TransitionTable *tt_from, TransitionTable *tt_to,
                     }
 
                     /* α = ε and q_i' = q_i */
-                    if (alph_sym->label == Epsilon && q == q_prime) {
+                    if (!is_fresh1 && alph_sym->label == Epsilon && q == q_prime) {
                         continue;
                     }
 
@@ -236,13 +245,10 @@ product_transitions(TransitionTable *tt_from, TransitionTable *tt_to,
                         break;
                     }
 
-                    /* q_i = q_i' = ⊥ */
-                    is_fresh1 = t1[i] == pwl[i].prog->len - 1;
-                    is_fresh2 = t2[i] == pwl[i].prog->len - 1;
-
                     original_and = and_states[i - 1].state;
                     does_contain_and = contains_and(original_and, t2, offsets, pwl->len);
 
+                    /* q_i = q_i' = ⊥ */
                     if (is_fresh1 && is_fresh2) {
                         if (does_contain_and) {
                             satisfied = FALSE;
@@ -275,7 +281,7 @@ product_transitions(TransitionTable *tt_from, TransitionTable *tt_to,
                             is_eq = FALSE;
                     }
 
-                    if (!(is_eq && state_list_equals(states_from, final_states))) {
+                    if (!(is_eq && hash_set_contains(final_states->states, states_from))) {
                         tl = make_transition_label(alph_sym->label, alph_sym->info);
                         add_sl_transition(tt_from, states_from, states_to, tl);
                         add_sl_transition(tt_to, states_to, states_from, tl);

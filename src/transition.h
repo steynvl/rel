@@ -2,6 +2,7 @@
 #include "regex.h"
 #include "hashset.h"
 
+typedef struct FinalStates FinalStates;
 typedef struct Alphabet Alphabet;
 typedef struct StateList StateList;
 typedef struct CollectionStateList CollectionStateList;
@@ -14,6 +15,11 @@ enum       /* TransitionLabel.label */
     Epsilon = 1,
     Input
 };
+
+struct FinalStates {
+    HashSet *states;
+};
+FinalStates* create_final_states();
 
 struct StateList {
     int *states;
@@ -57,7 +63,7 @@ int path_exists(int, int, Prog*, TransitionLabel*, int);
 
 void add_sl_transition(TransitionTable*, StateList*, StateList*, TransitionLabel*);
 
-Prog* convert_to_prog(TransitionTable*, TransitionTable*, StateList*, StateList*, GHashTable*);
+Prog* convert_to_prog(TransitionTable*, TransitionTable*, StateList*, FinalStates*, GHashTable*);
 
 TransitionLabel* make_epsilon_tl();
 TransitionLabel* make_char_tl(int);
@@ -67,7 +73,7 @@ StateAndTransitionLabel* make_state_and_tl(int, TransitionLabel*);
 void add_to_alphabet(Alphabet**, int, int);
 void print_alphabet(Alphabet*);
 
-void print_dot(TransitionTable*, StateList*, StateList*);
+void print_dot(TransitionTable*, StateList*, FinalStates*);
 
 StateList* create_state_list(int);
 int state_list_equals(StateList*, StateList*);

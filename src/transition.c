@@ -87,14 +87,24 @@ get_reachable_states_from(TransitionTable *tt_from, StateList *sl)
 }
 
 static HashSet*
-get_reaching_states(TransitionTable *tt_to, StateList *sl)
+get_reaching_states(TransitionTable *tt_to, FinalStates *fs)
 {
-    return get_reachable_states_from(tt_to, sl);
+    HashSet *reachable;
+    HashSetIter iter;
+    gpointer val;
+
+    reachable = hash_set_new(state_list_hash, state_list_eq);
+    hash_set_iter_init(&iter, fs->states);
+    while (hash_set_iter_next(&iter, &val)) {
+        hash_set_add_all(reachable, get_reachable_states_from(tt_to, val));
+    }
+
+    return reachable;
 }
 
 static HashSet*
 get_alive_states(TransitionTable *tt_from, TransitionTable *tt_to,
-                 StateList *is, StateList *fs)
+                 StateList *is, FinalStates *fs)
 {
     HashSet *alive_states, *reachable_from_init, *reaching_final;
     HashSetIter iter;
@@ -206,14 +216,14 @@ static void print_sl_hash_set(HashSet *hs)
     }
 }
 
-static gboolean is_final_configuration(HashSet *states, StateList *final_states)
+static gboolean is_final_configuration(HashSet *states, FinalStates *final_states)
 {
     HashSetIter iter;
     gpointer val;
 
     hash_set_iter_init(&iter, states);
     while (hash_set_iter_next(&iter, &val)) {
-        if (state_list_equals((StateList*) val, final_states))
+        if (hash_set_contains(final_states->states, (StateList*) val))
             return TRUE;
     }
     return FALSE;
@@ -230,7 +240,7 @@ static gboolean is_save_move(StateList *sl1, StateList *sl2)
 }
 
 Prog* convert_to_prog(TransitionTable *tt_from, TransitionTable* tt_to,
-                      StateList *is, StateList *fs, GHashTable *save_states)
+                      StateList *is, FinalStates *fs, GHashTable *save_states)
 {
     GHashTable *reached_states, *moves;
     GHashTableIter iter;
@@ -485,6 +495,16 @@ StateAndTransitionLabel* make_state_and_tl(int state, TransitionLabel *tl)
     return s;
 }
 
+FinalStates* create_final_states()
+{
+    FinalStates *fs;
+
+    fs = umal(sizeof(FinalStates));
+    fs->states = hash_set_new(state_list_hash, state_list_eq);
+
+    return fs;
+}
+
 /* --- utility functions -------------------------------------------------- */
 
 static char*
@@ -529,9 +549,10 @@ void add_to_alphabet(Alphabet **alph, int label, int info)
 
 void print_dot(TransitionTable *tt,
                StateList *initial_states,
-               StateList *final_states)
+               FinalStates *final_states)
 {
     GHashTableIter iter1, iter2;
+    HashSetIter hs_iter;
     gpointer key1, key2, value1, value2;
     GSList *to_states;
     GList* key;
@@ -549,7 +570,7 @@ void print_dot(TransitionTable *tt,
         printf("%s", state);
         printf("[label=%s", state);
 
-        if (state_list_equals(final_states, sl)) {
+        if (hash_set_contains(final_states->states, sl)) {
             printf(",peripheries=2");
         }
 
@@ -562,9 +583,13 @@ void print_dot(TransitionTable *tt,
         key = key->next;
     }
 
-    if (!g_hash_table_contains(tt->ht, final_states)) {
-        state = merge_state_list(final_states);
-        printf("%s[label=%s,peripheries=2]\n", state, state);
+    hash_set_iter_init(&hs_iter, final_states->states);
+    while (hash_set_iter_next(&hs_iter, &value1)) {
+        sl = (StateList*) value1;
+        if (!g_hash_table_contains(tt->ht, sl)) {
+            state = merge_state_list(sl);
+            printf("%s[label=%s,peripheries=2]\n", state, state);
+        }
     }
 
     initial = merge_state_list(initial_states);
